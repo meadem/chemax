@@ -21,6 +21,17 @@ REFERENCE_ELECTRODES = {
 
 class Experiment():
     '''
+    # need to consider default labels for nyquist and bode plotting
+
+    # tafel method needs to accept multiple trials and default to analyzing all CV experiments
+
+    # I should try altering data so that it's just a df and not a df inside a dict
+
+    # is there as Best Practices for where to put the property definitions? they're just sort of wedged in right now.
+
+    # I'd like to add metadata that allows for plotting many of the same kind of plot using their technique label and assigning labels
+    # to the plot using metadata. This would really cut down on code on the FE.
+    
     # in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode (e.g., V v. SHE...)
     
     # should I default to current units of mA or A?
@@ -55,7 +66,6 @@ class Experiment():
         self.DISPLAY_REFERENCE_ELECTRODE_POTENTIAL = None
         self.area = area
         self.Ru = Ru
-        self.technique = {}
         
         
         # Set the reference electrode potential, for both the RE used to acquire the data and the one used to display it
@@ -194,6 +204,13 @@ class Experiment():
         perform cottrell analysis. current converted to mA for analysis
         '''
         F = 96485
+        
+        # if a list of trials is not passed, default is to perform analysis on all CA data
+        if not trials:
+            for trial in self.metadata:
+                if self.metadata[trial]["technique"] == "CA":
+                    trials.append(trial)
+        
         for trial in trials:
             # Check if Corrected Time for trial data has already been calculated; do so if not (is this check even necessary?)
             # NOTE: it may be more accurate to correct the start time w/o zeroing, similar to how I did this originally (can do easily??)
@@ -225,7 +242,7 @@ class Experiment():
             
             # (cm^2 /s) (area expected in cm^2)
             # Bulk conc of species for which the diffusion coefficient is being calculated has units of (mol/cm^3, i.e., mol/mL, or MM)
-            DIFFUSION_COEFFICIENT = np.pi * ( COTTRELL_SLOPE / ( n*F*self.area*concentration*1000 ) )**2
+            DIFFUSION_COEFFICIENT = np.pi * ( COTTRELL_SLOPE / ( n*F*self.area*C*1000 ) )**2
             print(f"A diffusion coefficient of {DIFFUSION_COEFFICIENT} was extracted using Cottrell analysis from {self.name} trial {trial}")
     
     
@@ -319,7 +336,6 @@ class Experiment():
             
             except:
                 raise Exception(f"Error while attempting to RE correct voltage for {self.name} trial {trial}.")
-        
     
     
     
@@ -344,9 +360,9 @@ class Experiment():
         
         # set up and execute file loading
         try:
-            # create temporary dicts that will be incorporated into self.source and self.data at the end of the method call 
-            source = {}
+            # create temporary dicts that will be incorporated into self.data and self.metadata at the end of the method call
             data = {}
+            metadata = {}
 
             # create a temporary dict that holds key:value pairs of INTERNAL:EXTERNAL data indices during import
             # used to force consecutive integer values for internal data reference
@@ -385,28 +401,17 @@ class Experiment():
                                      EXTERNAL_DATA_INDICES))
             # ----------------------------------------------------------------------------------------------------------
             
-            # iteratively load files
-            for i in DATA_INDICES:
-                INTERNAL_DATA_INDEX = i                     
-                EXTERNAL_DATA_INDEX = DATA_INDICES[i]      
+            # iteratively load file data
+            for INTERNAL_DATA_INDEX in DATA_INDICES:
+                EXTERNAL_DATA_INDEX = DATA_INDICES[INTERNAL_DATA_INDEX]
                 FILE_NAME = file + str(EXTERNAL_DATA_INDEX) + filetype
                 FILE_PATH = os.path.join(folder, FILE_NAME)
-                source[INTERNAL_DATA_INDEX] = FILE_PATH
                 data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                metadata[INTERNAL_DATA_INDEX] = dict(source=FILE_PATH, technique=technique)
                 if not silent:
                     print(f"Data file {FILE_PATH} successfully imported (INDEX={INTERNAL_DATA_INDEX}) for {self.name}.")
         except:
             raise Exception(f"Error while importing data files from {folder} into {self.name}.")
-        
-        # tag data with the acquisition technique, if it was provided
-        try:
-            if technique is not None:
-                if technique not in self.technique.keys():
-                    self.technique[technique] = list(DATA_INDICES.keys())
-                else:
-                    self.technique[technique] = sorted(set(self.technique[technique] + list(DATA_INDICES.keys())))
-        except:
-            raise Exception(f"Error while tagging data files imported from {folder} with technique {technique} for {self.name}.")
         
         # standardize imported data headers
         try:
@@ -460,19 +465,49 @@ class Experiment():
                                 if not silent:
                                     print(f"Converted current from mA to A for experiment {sheet}.")
                             data[sheet].rename(columns={column_name: HEADER_DICT[entry]}, inplace=True)
-        
         except:
             raise Exception(f"Error during header standardization while importing data from {folder} for {self.name}.")
         
-        # save data and data sources in namespace
-        # These needs to become append statements
+        # assign more metadata (easier to do these ones after header standardization)
+        try:
+            for trial in data:
+                # calculate applied voltage from data for CA experiments; set as default label
+                if metadata[trial]['technique'].upper() == "CA":
+                    VOLTAGE = data[trial]["Voltage"]*1000
+                    applied_voltage = str(int(VOLTAGE.mean())) + " mV"
+                    metadata[trial]['applied voltage'] = applied_voltage
+                    metadata[trial]['default label'] = applied_voltage
+                # calculate scan rate from data for CV, etc., experiments; set as default label
+                elif metadata[trial]['technique'].upper() in ["CV", "CV SIM", "LSV"]:
+                    TIME = data[trial]["Time"]
+                    VOLTAGE = data[trial]["Voltage"]*1000
+                    VOLTAGE = VOLTAGE[data[trial]["Cycle"] == 1]
+                    if "ox/red" not in data[trial]:
+                        VOLTAGE = VOLTAGE[VOLTAGE.idxmin():VOLTAGE.idxmin()+100]
+                    else:
+                        VOLTAGE = VOLTAGE[data[trial]["ox/red"] == 1]
+                    INDEX1 = VOLTAGE.idxmax()
+                    INDEX2 = VOLTAGE.idxmin()
+                    VOLTAGE_RANGE = abs(VOLTAGE[INDEX1] - VOLTAGE[INDEX2])
+                    TIME_RANGE = abs(TIME[INDEX1] - TIME[INDEX2])
+                    SCAN_RATE = str(int(VOLTAGE_RANGE / TIME_RANGE)) + " mV/s"
+                    metadata[trial]['scan rate'] = SCAN_RATE
+                    metadata[trial]['default label'] = SCAN_RATE
+                else:
+                    metadata[trial]['applied voltage'] = None
+                    metadata[trial]['scan rate'] = None
+                    metadata[trial]['default label'] = None
+        except:
+            raise Exception(f"Error while assigning metadata during loading for {self.name} trial {trial}.")
+        
+        # save data and metadata in namespace
         try:
             if _IS_INSTANTIATION:
                 self.data = data
-                self.source = source
+                self.metadata = metadata
             else:
                 self.data.update(data)
-                self.source.update(source)
+                self.metadata.update(metadata)
         except:
             raise Exception(f"Error while saving data imported from {folder} for {self.name}.")
         
@@ -555,16 +590,13 @@ class Experiment():
     
     
     
-    def plot(self, type_, title="", label="", trials=[], position=111, trim=[None,None], zoom=[None,None],
+    def plot(self, type_, technique=None, title="", label=None, trials=None, position=111, trim=[None,None], zoom=[None,None],
              xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A"):
         '''
         Plot the specified curve type. 
         
         Can be used to plot multiple traces at once, but this is probably only useful when labeling is not necessary.
         '''
-        
-        if not trials:
-            trials = self.data
         
         FILTER_START = trim[0]
         FILTER_STOP = trim[1]
@@ -574,6 +606,16 @@ class Experiment():
         plt.title(title)
         plt.axhline(color='k', linewidth=0.25)
         plt.axvline(color='k', linewidth=0.25)
+
+        if trials is None:
+            if technique is None:
+                trials = self.data
+            else:
+                trials = []
+                for trial in self.metadata:
+                    if self.metadata[trial]["technique"] == technique:
+                        trials.append(trial)
+        
         
         if type_ == "IV":
             
@@ -584,7 +626,7 @@ class Experiment():
             
             plt.xlabel(xlabel, fontsize=16)
             plt.ylabel(ylabel, fontsize=16)
-            
+
             for trial in trials:
                 # Use RE-Corrected Voltage if available
                 VOLTAGE = None
@@ -593,27 +635,33 @@ class Experiment():
                     VOLTAGE = self.data[trial]["RE-Corrected Voltage"]
                 else:
                     VOLTAGE = self.data[trial]["Voltage"]
+                
+                # if not label is provided, use default label, if available
+                _label = label
+                if label is None:
+                    _label = self.metadata[trial]["default label"]
+                
                 # Plot using appropriate units and labeling
                 if voltage_units.upper() == "V" and current_units.upper() == "A":
                     plt.plot(VOLTAGE[FILTER_START:FILTER_STOP], 
                              CURRENT[FILTER_START:FILTER_STOP], 
-                             label=label)
+                             label=_label)
                 elif voltage_units.upper() == "V" and current_units.upper() == "MA":
                     plt.ylabel("Current (mA)")
                     plt.plot(VOLTAGE[FILTER_START:FILTER_STOP], 
                              CURRENT[FILTER_START:FILTER_STOP]*1000, 
-                             label=label)
+                             label=_label)
                 elif voltage_units.upper() == "MV" and current_units.upper() == "A":
                     plt.xlabel("Voltage (mV)")
                     plt.plot(VOLTAGE[FILTER_START:FILTER_STOP]*1000, 
                              CURRENT[FILTER_START:FILTER_STOP], 
-                             label=label)
+                             label=_label)
                 elif voltage_units.upper() == "MV" and current_units.upper() == "MA":
                     plt.xlabel("Voltage (mV)")
                     plt.ylabel("Current (mA)")
                     plt.plot(VOLTAGE[FILTER_START:FILTER_STOP]*1000, 
                              CURRENT[FILTER_START:FILTER_STOP]*1000, 
-                             label=label)
+                             label=_label)
                 else:
                     raise NameError("Units not found or other error while plotting I-V curve.")
         
@@ -633,29 +681,34 @@ class Experiment():
                     if "iR-Corrected Voltage" not in self.data[trial]:
                         self.correct_voltage("iR", trials=[trial])
                     
+                    # if not label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
+                    
                     # Plot corrected voltage using the specified current and voltage units
                     # Note that voltage plots from "Corrected Voltage" and not "iR-Corrected Voltage"; 
                     # this incorporates the RE adjustment if one has been made, and otherwise is just the iR-corrected voltage anyways
                     if voltage_units.upper() == "V" and current_units.upper() == "A":
                         plt.plot(self.data[trial]["Corrected Voltage"][FILTER_START:FILTER_STOP], 
                                  self.data[trial]["Current"][FILTER_START:FILTER_STOP], 
-                                 label=label)
+                                 label=_label)
                     elif voltage_units.upper() == "V" and current_units.upper() == "MA":
                         plt.ylabel("Current (mA)", fontsize=16)
                         plt.plot(self.data[trial]["Corrected Voltage"][FILTER_START:FILTER_STOP], 
                                  self.data[trial]["Current"][FILTER_START:FILTER_STOP]*1000, 
-                                 label=label)
+                                 label=_label)
                     elif voltage_units.upper() == "MV" and current_units.upper() == "A":
                         plt.xlabel("Corrected Voltage (mV)", fontsize=16)
                         plt.plot(self.data[trial]["Corrected Voltage"][FILTER_START:FILTER_STOP]*1000, 
                                  self.data[trial]["Current"][FILTER_START:FILTER_STOP], 
-                                 label=label)
+                                 label=_label)
                     elif voltage_units.upper() == "MV" and current_units.upper() == "MA":
                         plt.xlabel("Voltage (mV)", fontsize=16)
                         plt.ylabel("Current (mA)", fontsize=16)
                         plt.plot(self.data[trial]["Corrected Voltage"][FILTER_START:FILTER_STOP]*1000, 
                                  self.data[trial]["Current"][FILTER_START:FILTER_STOP]*1000, 
-                                 label=label)
+                                 label=_label)
                     else:
                         raise NameError("Units not found or other error while plotting I-V curve.")
                 except:
@@ -679,11 +732,16 @@ class Experiment():
                 try:
                     X = self.data[trial]["Tafel overpotential"]
                     Y = self.data[trial]["Tafel current"]
+
+                    # if not label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
                     
                     # Plot log(i) v. iR-corrected overpotential
                     plt.scatter(X, 
                                 Y,
-                                label=label)
+                                label=_label)
                     
                     # Plot linear regression of above data
                     plt.plot(X, 
@@ -716,7 +774,6 @@ class Experiment():
             # Set axis limits
             plt.xlim(xlim)
             plt.ylim(ylim)
-            
         
         if type_ == "Cottrell":
             
@@ -730,18 +787,26 @@ class Experiment():
             
             try:
                 # list of plotting colors (for matching scatter color with regression color)
-                COLOR = plt.rcParams['axes.prop_cycle'].by_key()['color']
+                # needs to be expanded beyond 10 values to prevent overlap with >10 traces
+                COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
                 
                 for trial in trials:
                     COTTRELL_INDEX_MIN = self.data[trial].COTTRELL_INDEX_MIN
                     X = self.data[trial]["Time-Inverse-Root"][COTTRELL_INDEX_MIN:]
                     Y = self.data[trial]["Current"][COTTRELL_INDEX_MIN:]*1000
+
+                    # if no label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
                     
-                    # Plot time-inverse-root v. current (mA)
+                    # determine appropriate color for trace
                     NUMBER_OF_EXISTING_SCATTER_TRACES = len(plt.gca().collections)
-                    COLOR_INDEX = NUMBER_OF_EXISTING_SCATTER_TRACES
-                    COLOR = str(COLOR[COLOR_INDEX])
-                    plt.scatter(X, Y, label=label, color=COLOR)
+                    COLOR_INDEX = NUMBER_OF_EXISTING_SCATTER_TRACES % len(COLORS)
+                    COLOR = str(COLORS[COLOR_INDEX])
+
+                    # Plot time-inverse-root v. current (mA)
+                    plt.scatter(X, Y, label=_label, color=COLOR)
                     
                     # Plot linear regression of same
                     plt.plot(X, 
@@ -751,8 +816,7 @@ class Experiment():
                             , '--', color=COLOR)
                     
             except:
-                raise ValueError(f"Error while making Cottrell plot for trial {trial}.")
-        
+                raise ValueError(f"Error while making Cottrell plot for {self.name} trial {trial}.")
         
         if type_ == "CA":
             
@@ -767,24 +831,30 @@ class Experiment():
             for trial in trials:
                 TIME = None
                 CURRENT = self.data[trial]["Current"]
+                
                 if "Corrected Time" in self.data[trial].columns:
                     TIME = self.data[trial]["Corrected Time"]
                 else:
                     self.correct_time(trials=[trial])
                     TIME = self.data[trial]["Corrected Time"]
+                
+                # if not label is provided, use default label, if available
+                _label = label
+                if label is None:
+                    _label = self.metadata[trial]["default label"]
+                
                 # Plot using appropriate units and labeling
                 if current_units.upper() == "A":
                     plt.plot(TIME[FILTER_START:FILTER_STOP], 
                              CURRENT[FILTER_START:FILTER_STOP], 
-                             label=label)
+                             label=_label)
                 elif current_units.upper() == "MA":
                     plt.ylabel("Current (mA)")
                     plt.plot(TIME[FILTER_START:FILTER_STOP], 
                              CURRENT[FILTER_START:FILTER_STOP]*1000, 
-                             label=label)
+                             label=_label)
                 else:
                     raise NameError("Units not found or other error while plotting CA data.")
-        
         
         if type_ == "Nyquist":
             
@@ -868,12 +938,11 @@ class Experiment():
             plt.yaxis.label.set_color('red')
             gca().tick_params(axis='y', colors='red')
         
-        
         if legend:
-            plt.legend()
+            plt.legend()  
     
     
-    
+
     
     def tafel(self, trial=None, voltage_bounds=[None,None], E_eq=0.0):
         '''
