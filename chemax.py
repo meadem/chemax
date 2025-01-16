@@ -21,13 +21,19 @@ REFERENCE_ELECTRODES = {
 
 class Experiment():
     '''
-    # Does load method need to be able to append? what if I want to load multiple data files into one experiment object?
+    # in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode (e.g., V v. SHE...)
+    
+    # should I default to current units of mA or A?
     
     # Regression() is a duplicate with linear_function(), which is newer; need to compare and downselect
     
     # BUG: the various input() queries do not print out in a consistent order relative to other print-outs (maybe import datetime?)
     
     # would be nice if tafel() method printed something out when it ran, like the tafel plot at least and maybe also the corrected I-V curve
+    
+    # add method for resetting the data (and/or undoing the most recent load operation?..)
+    
+    # add try catch in multiple places where it's missing
     
     '''
     
@@ -36,6 +42,7 @@ class Experiment():
         name = experiment name (could be same as variable used for class instance. Mostly used for error and print msgs.)
         description = experiment description
         RE = Reference Electrode used to acquire the data
+        display_RE = Reference Electrode used to correct the voltage for display
         area = working electrode area
         Ru = uncompensated series resistance
         '''
@@ -48,6 +55,7 @@ class Experiment():
         self.DISPLAY_REFERENCE_ELECTRODE_POTENTIAL = None
         self.area = area
         self.Ru = Ru
+        self.technique = {}
         
         
         # Set the reference electrode potential, for both the RE used to acquire the data and the one used to display it
@@ -181,6 +189,62 @@ class Experiment():
     
     
     
+    def cottrell(self, trials=[], n=1, C=1):
+        '''
+        perform cottrell analysis. current converted to mA for analysis
+        '''
+        F = 96485
+        for trial in trials:
+            # Check if Corrected Time for trial data has already been calculated; do so if not (is this check even necessary?)
+            # NOTE: it may be more accurate to correct the start time w/o zeroing, similar to how I did this originally (can do easily??)
+            if "Corrected Time" not in self.data[trial]:
+                self.correct_time(trials=[trial])
+
+            # Check if t^-0.5 for trial data has already been calculated; do so if not (is this check even necessary?)
+            if "Time-Inverse-Root" not in self.data[trial]:
+                self.data[trial]["Time-Inverse-Root"] = 1 / np.sqrt(self.data[trial]["Corrected Time"])
+                self.update_history(f"Time-Inverse-Root calculated from Corrected Time for trial {trial} in {self.name}.")
+
+            # filter out data where current <= peak current / e
+            TIME_INVERSE_ROOT = self.data[trial]["Time-Inverse-Root"]
+            CURRENT = self.data[trial]["Current"]*1000
+            FILTERED_CURRENT = CURRENT[CURRENT <= (CURRENT.max() / np.e)]
+            COTTRELL_INDEX_MIN = FILTERED_CURRENT.idxmax()
+            COTTRELL_DOMAIN = TIME_INVERSE_ROOT[COTTRELL_INDEX_MIN:]
+            COTTRELL_RANGE = CURRENT[COTTRELL_INDEX_MIN:]
+
+            # linear regression
+            COTTRELL_SLOPE, COTTRELL_INTERCEPT = np.polyfit(COTTRELL_DOMAIN, 
+                                                            COTTRELL_RANGE, 
+                                                            1)
+
+            # save as attributes of trial's dataframe object
+            self.data[trial].COTTRELL_INDEX_MIN = COTTRELL_INDEX_MIN
+            self.data[trial].COTTRELL_SLOPE = COTTRELL_SLOPE
+            self.data[trial].COTTRELL_INTERCEPT = COTTRELL_INTERCEPT
+            
+            # (cm^2 /s) (area expected in cm^2)
+            # Bulk conc of species for which the diffusion coefficient is being calculated has units of (mol/cm^3, i.e., mol/mL, or MM)
+            DIFFUSION_COEFFICIENT = np.pi * ( COTTRELL_SLOPE / ( n*F*self.area*concentration*1000 ) )**2
+            print(f"A diffusion coefficient of {DIFFUSION_COEFFICIENT} was extracted using Cottrell analysis from {self.name} trial {trial}")
+    
+    
+    
+    
+    def correct_time(self, trials=[], silent=True):
+        '''
+        Zero-correct time (i.e., shift all time values equally and such that the first value is zero)
+        '''
+        try:
+            for trial in trials:
+                self.data[trial]["Corrected Time"] = self.data[trial]["Time"] - self.data[trial]["Time"][0]
+                self.update_history(f"Corrected Time calculated from raw Time data for trial {trial} in {self.name}.")
+        except:
+            raise Exception(f"Error while zero-correcting time for {self.name}.")
+    
+    
+    
+    
     def correct_voltage(self, correction=None, trials=[], silent=True, RE=None):
         '''
         Adds a new column to the specified trials' dataframe(s) containing the voltage corrected for either:
@@ -269,81 +333,152 @@ class Experiment():
     
     
     
-    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', file_numbers=None, silent=False):
+    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', file_numbers=None, technique=None, silent=False):
         '''
         Upload data files into an Experiment object as a pandas dataframe.
+        
+        NEXT: allow for this to be called more than once, and to append data files (instead of overwriting)
         '''
-        source = {}
-        data = {}
+        # tag if this operation is an instantiation (alternative is an append operation)
+        _IS_INSTANTIATION = not hasattr(self, "data")
         
-        # if the file_numbers argument is provided, it will be used in place of the num argument
-        if file_numbers == None:
-            file_numbers = np.arange(1, num+1, step)
-        
-        # iteratively load files
-        for file_number in file_numbers:
-            file_name = file + str(file_number) + filetype
-            file_path = os.path.join(folder, file_name)
-            source[file_number] = file_path
-            data[file_number] = pd.read_csv(file_path, sep=None, engine='python', encoding='unicode_escape')
+        # set up and execute file loading
+        try:
+            # create temporary dicts that will be incorporated into self.source and self.data at the end of the method call 
+            source = {}
+            data = {}
 
-        # List of standardized column names
-        VOLTAGE_HEADER = "Voltage"
-        CURRENT_HEADER = "Current"
-        TIME_HEADER = "Time"
-        CYCLE_HEADER = "Cycle"
-        POWER_HEADER = "Power"
-        FREQUENCY_HEADER = "Frequency"
-        ZREAL_HEADER = "Z_real"
-        ZIMAG_HEADER = "Z_imag"
-        Z_HEADER = "Z"
-        PHASE_ANGLE_HEADER = "Phase Angle"
+            # create a temporary dict that holds key:value pairs of INTERNAL:EXTERNAL data indices during import
+            # used to force consecutive integer values for internal data reference
+            # e.g., files "data_1" and "data_3" would be indexed as 1 and 2, as would files "CV_data_1" and "RDE_data_1"
+            # ----------------------------------------------------------------------------------------------------------
+            EXTERNAL_DATA_INDICES = None
+            INTERNAL_DATA_INDICES = None
+            
+            # EXTERNAL DATA INDICES
+            # if provided, use file_numbers argument in place of the num argument for defining the external data indices
+            if file_numbers is None:
+                EXTERNAL_DATA_INDICES = np.arange(1, num+1, step)
+            else:
+                EXTERNAL_DATA_INDICES = file_numbers
+            
+            # NUMBER OF NEW TRIALS
+            NUMBER_OF_NEW_TRIALS = len(EXTERNAL_DATA_INDICES)
+            
+            # NUMBER OF EXISTING TRIALS
+            NUMBER_OF_EXISTING_TRIALS = None
+            if _IS_INSTANTIATION:
+                NUMBER_OF_EXISTING_TRIALS = 0
+            else:
+                NUMBER_OF_EXISTING_TRIALS = len(self.data)
+            
+            # INTERNAL DATA INDICES
+            if _IS_INSTANTIATION:
+                INTERNAL_DATA_INDICES = np.arange(1, 
+                                                  NUMBER_OF_NEW_TRIALS+1)
+            else:
+                INTERNAL_DATA_INDICES = np.arange(NUMBER_OF_EXISTING_TRIALS + 1, 
+                                                  NUMBER_OF_EXISTING_TRIALS + NUMBER_OF_NEW_TRIALS + 1)
+            
+            # DATA INDICES
+            DATA_INDICES = dict(zip(INTERNAL_DATA_INDICES,
+                                     EXTERNAL_DATA_INDICES))
+            # ----------------------------------------------------------------------------------------------------------
+            
+            # iteratively load files
+            for i in DATA_INDICES:
+                INTERNAL_DATA_INDEX = i                     
+                EXTERNAL_DATA_INDEX = DATA_INDICES[i]      
+                FILE_NAME = file + str(EXTERNAL_DATA_INDEX) + filetype
+                FILE_PATH = os.path.join(folder, FILE_NAME)
+                source[INTERNAL_DATA_INDEX] = FILE_PATH
+                data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                if not silent:
+                    print(f"Data file {FILE_PATH} successfully imported (INDEX={INTERNAL_DATA_INDEX}) for {self.name}.")
+        except:
+            raise Exception(f"Error while importing data files from {folder} into {self.name}.")
         
-        # A dictionary of headers I've observed previously and what to replace them with when found.
-        HEADER_DICT = {"VOLTAGE":VOLTAGE_HEADER,
-                       "EWE/V":VOLTAGE_HEADER,
-                       "<EWE>/V":VOLTAGE_HEADER,
-                       "E (V)":VOLTAGE_HEADER,
-                       "EWE/MV":VOLTAGE_HEADER,
-                       "E (MV)":VOLTAGE_HEADER,
-                       "CURRENT":CURRENT_HEADER,
-                       "<I>/A":CURRENT_HEADER,
-                       "<I>/MA":CURRENT_HEADER,
-                       "TIME (S)":TIME_HEADER,
-                       "TIME":TIME_HEADER,
-                       "TIME/S":TIME_HEADER,
-                       "CYCLE":CYCLE_HEADER,
-                       "CYCLE NUMBER":CYCLE_HEADER,
-                       "POWER":POWER_HEADER,
-                       "POWER (W)":POWER_HEADER,
-                       "P (W)":POWER_HEADER,
-                       "P/W":POWER_HEADER,
-                       "FREQ/HZ":FREQUENCY_HEADER,
-                       "RE(Z)/OHM":ZREAL_HEADER,
-                       "-IM(Z)/OHM":ZIMAG_HEADER,
-                       "|Z|/OHM":Z_HEADER,
-                       "PHASE(Z)/DEG":PHASE_ANGLE_HEADER,
-                      }
+        # tag data with the acquisition technique, if it was provided
+        try:
+            if technique is not None:
+                if technique not in self.technique.keys():
+                    self.technique[technique] = list(DATA_INDICES.keys())
+                else:
+                    self.technique[technique] = sorted(set(self.technique[technique] + list(DATA_INDICES.keys())))
+        except:
+            raise Exception(f"Error while tagging data files imported from {folder} with technique {technique} for {self.name}.")
         
-        # this nested for loop attempts to standardize the data headers to internally consistent values using the above two lists
-        # (It also converts current data from mA to A)
-        for sheet in data:
-            for column_name in data[sheet]:
-                for entry in HEADER_DICT:
-                    if column_name.upper() == entry:
-                        if entry == "<I>/MA":
-                            data[sheet][column_name] /= 1000
-                            if not silent:
-                                print(f"Converted current from mA to A for experiment {sheet}.")
-                        data[sheet].rename(columns={column_name: HEADER_DICT[entry]}, inplace=True)
+        # standardize imported data headers
+        try:
+            # List of standardized column names
+            VOLTAGE_HEADER = "Voltage"
+            CURRENT_HEADER = "Current"
+            TIME_HEADER = "Time"
+            CYCLE_HEADER = "Cycle"
+            POWER_HEADER = "Power"
+            FREQUENCY_HEADER = "Frequency"
+            ZREAL_HEADER = "Z_real"
+            ZIMAG_HEADER = "Z_imag"
+            Z_HEADER = "Z"
+            PHASE_ANGLE_HEADER = "Phase Angle"
+
+            # A dictionary of headers I've observed previously and what to replace them with when found.
+            HEADER_DICT = {"VOLTAGE":VOLTAGE_HEADER,
+                           "EWE/V":VOLTAGE_HEADER,
+                           "<EWE>/V":VOLTAGE_HEADER,
+                           "E (V)":VOLTAGE_HEADER,
+                           "EWE/MV":VOLTAGE_HEADER,
+                           "E (MV)":VOLTAGE_HEADER,
+                           "CURRENT":CURRENT_HEADER,
+                           "<I>/A":CURRENT_HEADER,
+                           "<I>/MA":CURRENT_HEADER,
+                           "I/MA":CURRENT_HEADER,
+                           "I/A":CURRENT_HEADER,
+                           "TIME (S)":TIME_HEADER,
+                           "TIME":TIME_HEADER,
+                           "TIME/S":TIME_HEADER,
+                           "CYCLE":CYCLE_HEADER,
+                           "CYCLE NUMBER":CYCLE_HEADER,
+                           "POWER":POWER_HEADER,
+                           "POWER (W)":POWER_HEADER,
+                           "P (W)":POWER_HEADER,
+                           "P/W":POWER_HEADER,
+                           "FREQ/HZ":FREQUENCY_HEADER,
+                           "RE(Z)/OHM":ZREAL_HEADER,
+                           "-IM(Z)/OHM":ZIMAG_HEADER,
+                           "|Z|/OHM":Z_HEADER,
+                           "PHASE(Z)/DEG":PHASE_ANGLE_HEADER,
+                          }
+
+            # Apply header standardization (also: convert current data from mA to A)
+            for sheet in data:
+                for column_name in data[sheet]:
+                    for entry in HEADER_DICT:
+                        if column_name.upper() == entry:
+                            if entry == "<I>/MA":
+                                data[sheet][column_name] /= 1000
+                                if not silent:
+                                    print(f"Converted current from mA to A for experiment {sheet}.")
+                            data[sheet].rename(columns={column_name: HEADER_DICT[entry]}, inplace=True)
+        
+        except:
+            raise Exception(f"Error during header standardization while importing data from {folder} for {self.name}.")
         
         # save data and data sources in namespace
-        self.data = data
-        self.source = source
+        # These needs to become append statements
+        try:
+            if _IS_INSTANTIATION:
+                self.data = data
+                self.source = source
+            else:
+                self.data.update(data)
+                self.source.update(source)
+        except:
+            raise Exception(f"Error while saving data imported from {folder} for {self.name}.")
         
         # If a display reference electrode has been specified previously, prompt whether it should be applied during loading
-        if self.display_RE is not None:
-            try:
+        try:
+            if self.display_RE is not None:
                 check = input(f"Correct voltages for {self.name} using display RE '{self.display_RE}'? "
                               f"Values will be saved in a new column. (Y/N)")
                 if check.upper() == "Y":
@@ -353,13 +488,12 @@ class Experiment():
                 else:
                     print("Input not recognized. "
                           "Change the display_RE attribute to RE correct the voltage for display.")
-            except:
-                raise Exception(f"Error while prompting for RE voltage adjustment for {self.name}.")
+        except:
+            raise Exception(f"Error while prompting/correcting for RE voltage adjustment for {self.name}.")
         
         # Print a success message
         if not silent:
-            message = print(f"SUCCESS! Data imported from '{folder}'!")
-            return message
+            print(f"Data successfully imported from '{folder}'")
     
     
     
@@ -543,42 +677,114 @@ class Experiment():
             
             for trial in trials:
                 try:
+                    X = self.data[trial]["Tafel overpotential"]
+                    Y = self.data[trial]["Tafel current"]
+                    
                     # Plot log(i) v. iR-corrected overpotential
-                    plt.scatter(self.data[trial]["Tafel overpotential"], 
-                                self.data[trial]["Tafel current"],
+                    plt.scatter(X, 
+                                Y,
                                 label=label)
                     
                     # Plot linear regression of above data
-                    plt.plot(self.data[trial]["Tafel overpotential"], 
-                             self.linear_function(self.data[trial]["Tafel overpotential"], 
-                                                  self.tafel_slope_V, self.tafel_yint))
+                    plt.plot(X, 
+                             self.linear_function(X, 
+                                                  self.tafel_slope_V, 
+                                                  self.tafel_yint))
                     
-                    # Iteratively adjust plotting window (needs to be in loop in case multiple trials are plotted and need to be tracked)
-                    if xlim[0] == None or xlim[0] > self.data[trial]["Tafel overpotential"].min():
-                        xlim[0] = self.data[trial]["Tafel overpotential"].min()
-                    if xlim[1] == None or xlim[1] < self.data[trial]["Tafel overpotential"].max():
-                        xlim[1] = self.data[trial]["Tafel overpotential"].max()
-                    if ylim[0] == None or ylim[0] > self.data[trial]["Tafel current"].min():
-                        ylim[0] = self.data[trial]["Tafel current"].min()
-                    if ylim[1] == None or ylim[1] < self.data[trial]["Tafel current"].max():
-                        ylim[1] = self.data[trial]["Tafel current"].max()
+                    # Check and readjust plotting window for each trace
+                    if xlim[0] == None or xlim[0] > X.min():
+                        xlim[0] = X.min()
+                    if xlim[1] == None or xlim[1] < X.max():
+                        xlim[1] = X.max()
+                    if ylim[0] == None or ylim[0] > Y.min():
+                        ylim[0] = Y.min()
+                    if ylim[1] == None or ylim[1] < Y.max():
+                        ylim[1] = Y.max()
                     
                 except:
                     raise ValueError(f"Error while making Tafel plot for trial {trial}.")
             
-            # Apply 5% margins to axis limits
-            x_range = abs(xlim[1] - xlim[0])
-            y_range = abs(ylim[1] - ylim[0])
-            margin = 0.10
-            xlim = [xlim[0] - x_range*margin,
-                    xlim[1] + x_range*margin]
-            ylim = [ylim[0] - y_range*margin,
-                    ylim[1] + y_range*margin]
+            # Apply 10% margins to axis limits
+            MARGIN = 0.10
+            X_RANGE = abs(xlim[1] - xlim[0])
+            Y_RANGE = abs(ylim[1] - ylim[0])
+            xlim = [xlim[0] - X_RANGE*MARGIN,
+                    xlim[1] + X_RANGE*MARGIN]
+            ylim = [ylim[0] - Y_RANGE*MARGIN,
+                    ylim[1] + Y_RANGE*MARGIN]
             
             # Set axis limits
             plt.xlim(xlim)
             plt.ylim(ylim)
             
+        
+        if type_ == "Cottrell":
+            
+            if xlabel == None:
+                xlabel = r"${t}^{-\frac{1}{2}} \: ({s}^{-\frac{1}{2}})$"
+            if ylabel == None:
+                ylabel = r"$Current \: (mA)$"
+            
+            plt.xlabel(xlabel, fontsize=16)
+            plt.ylabel(ylabel, fontsize=16)
+            
+            try:
+                # list of plotting colors (for matching scatter color with regression color)
+                COLOR = plt.rcParams['axes.prop_cycle'].by_key()['color']
+                
+                for trial in trials:
+                    COTTRELL_INDEX_MIN = self.data[trial].COTTRELL_INDEX_MIN
+                    X = self.data[trial]["Time-Inverse-Root"][COTTRELL_INDEX_MIN:]
+                    Y = self.data[trial]["Current"][COTTRELL_INDEX_MIN:]*1000
+                    
+                    # Plot time-inverse-root v. current (mA)
+                    NUMBER_OF_EXISTING_SCATTER_TRACES = len(plt.gca().collections)
+                    COLOR_INDEX = NUMBER_OF_EXISTING_SCATTER_TRACES
+                    COLOR = str(COLOR[COLOR_INDEX])
+                    plt.scatter(X, Y, label=label, color=COLOR)
+                    
+                    # Plot linear regression of same
+                    plt.plot(X, 
+                             self.linear_function(X, 
+                                                  self.data[trial].COTTRELL_SLOPE, 
+                                                  self.data[trial].COTTRELL_INTERCEPT)
+                            , '--', color=COLOR)
+                    
+            except:
+                raise ValueError(f"Error while making Cottrell plot for trial {trial}.")
+        
+        
+        if type_ == "CA":
+            
+            if xlabel == None:
+                xlabel = r"$Time \: (s)$"
+            if ylabel == None:
+                ylabel = r"$Current \: (A)$"
+            
+            plt.xlabel(xlabel, fontsize=16)
+            plt.ylabel(ylabel, fontsize=16)
+            
+            for trial in trials:
+                TIME = None
+                CURRENT = self.data[trial]["Current"]
+                if "Corrected Time" in self.data[trial].columns:
+                    TIME = self.data[trial]["Corrected Time"]
+                else:
+                    self.correct_time(trials=[trial])
+                    TIME = self.data[trial]["Corrected Time"]
+                # Plot using appropriate units and labeling
+                if current_units.upper() == "A":
+                    plt.plot(TIME[FILTER_START:FILTER_STOP], 
+                             CURRENT[FILTER_START:FILTER_STOP], 
+                             label=label)
+                elif current_units.upper() == "MA":
+                    plt.ylabel("Current (mA)")
+                    plt.plot(TIME[FILTER_START:FILTER_STOP], 
+                             CURRENT[FILTER_START:FILTER_STOP]*1000, 
+                             label=label)
+                else:
+                    raise NameError("Units not found or other error while plotting CA data.")
+        
         
         if type_ == "Nyquist":
             
