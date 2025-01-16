@@ -8,74 +8,111 @@ I've since taught myself python Classes, and my goal is to build a class object 
 
 All of the files here are planned for eventual merging and inclusion into the chemax file.
 
-Below are some demonstrations of how to use chemax, taken from projects I did as a student where I've replaced the code with updated code. 
-In the future I'd like to expand this readme to explain more thoroughly, but for now these demos will have to suffice.
+Below is an example of how to use chemax. In the future I'd like to expand this readme to explain more thoroughly, but for now these demos will have to suffice.
 
 --------------------------------------
 
 ```python
-import numpy as np
-import matplotlib.pyplot as plt
-import chemax
 
-fig1 = plt.figure()
+###############################################
+# Import packages
+###############################################
 
-CV = chemax.Experiment()
-CV.load(num=2, filetype='.csv', file='101422_MM_CV_', folder='data')
-
-CV.IV(label="250 mV/s scan rate CV", position=111, trials=[1])
-CV.IV(label="500 mV/s scan rate CV", position=111, trials=[2])
-```
-![Untitled](https://github.com/user-attachments/assets/f9f4d216-ac7e-4aeb-a632-9595fa10d556)
-
-(this CV data was acquired using a potentiostat I made on a breadboard, which explains the resolution)
-
---------------------------------------
-
-```python
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import os
 import chemax
 
 
-exp = chemax.Experiment()
-exp.load(18, file='101822_', filetype='.txt')
+###############################################
+# Import data
+###############################################
 
-fig2 = plt.figure(2, figsize=(14,7))
-exp.IV(label='500 mV/s', trials=[1], position=121, trim=[250,None])
-exp.IV(label='100 mV/s', trials=[2], position=121, trim=[100,None])
-exp.IV(label='10 mV/s', trials=[3], position=121, trim=[25,None])
-exp.IV(label='250 mV/s', trials=[6], position=122, trim=[50,None])
-caption2 = "Figure 2. CVs collected in 0.2 M aqueous KCl using a GC electrode swept from an initial voltage of 0 to +1 V to -1 V \n v. SCE (left) and a Pt electrode swept from an initial voltage of 0 to +2 V to -2 V v. SCE (right). Data corrected to \n exclude aliasing effects."
-fig2.text(0.1, -0.08, caption2, fontsize=14, va='bottom', ha='left', wrap=True)
+FeCN = chemax.Experiment(name='FeCN', 
+                         description='CV and CA data for FeCN chemistry')
 
-fig3 = plt.figure(3, figsize=(15, 10))
-exp.IV(label='10 mV/s', trials=[12])
-exp.IV(label='50 mV/s', trials=[15])
-exp.IV(label='500 mV/s', trials=[7])
-caption3 = "Figure 3. Cyclic voltammograms of GC WE in moderately stirred 0.2 M KCl and 10 mM ferrocyanide at \n varied voltage scan rates. Experiments started at 0 V, swept to -2 V then swept positive to 1 V."
-fig3.text(.5, -0.01, caption3, fontsize=14, ha='center')
+FeCN.load(20, technique='CA', file='CA_data_', folder='data/wk1', step=2, filetype='.txt', silent=True)
+FeCN.load(7, technique='CV', file='CV_data_', folder='data/wk1', filetype='.txt', silent=True)
+FeCN.load(3, technique='CV sim', file='FeCN_', folder='data/CVsim', filetype='.txt', silent=True)
 
-fig5 = plt.figure(5, figsize=(15, 10))
-exp.IV(label='10 mM R; no O', trials=[11])
-exp.IV(label='10 mM R; 5 mM O', trials=[16])
-exp.IV(label='10 mM R; 10 mM O', trials=[17])
-caption5 = "Figure 5. Cyclic voltammogram of glassy carbon working electrode in vigorously stirred 0.2 M KCl and different relative \n proportions of R and O."
-fig5.text(.5, -0.01, caption5, fontsize=14, ha='center')
 
-fig6 = plt.figure(6, figsize=(15, 10))
-exp.IV(label='Stirred', trials=[17])
-exp.IV(label='Unstirred', trials=[18])
-caption6 = "Figure 6. Cyclic voltammogram of glassy carbon working electrode in moderately stirred 0.2 M KCl and 10 mM \n ferrocyanide/10 mM ferricyanide, both stirred and unstirred."
-fig6.text(.5, -0.01, caption6, fontsize=14, ha='center')
+FeSO4 = chemax.Experiment(name='FeSO4', 
+                          description='CV and CA data for FeSO4 chemistry')
+
+FeSO4.load(8, technique='CA', file='CA_FeSO4_', folder='data/wk2', filetype='.txt', silent=True)
+FeSO4.load(6, technique='CV', file='CV_FeSO4_', folder='data/wk2', filetype='.txt', silent=True)
+FeSO4.load(3, technique='CV sim', file='FeSO4_', folder='data/CVsim', filetype='.txt', silent=True)
+
+
+FePhen = chemax.Experiment(name='FePhen', 
+                           description='CV and CA data for FePhen chemistry')
+
+FePhen.load(8, technique='CA', file='CA_FePhen_', folder='data/wk2', filetype='.txt', silent=True)
+FePhen.load(6, technique='CV', file='CV_FePhen_', folder='data/wk2', filetype='.txt', silent=True)
+FePhen.load(3, technique='CV sim', file='FePhen_', folder='data/CVsim', filetype='.txt', silent=True)
+
+
+###############################################
+# Cottrell analysis
+###############################################
+
+FeCN.cottrell()
+FeSO4.cottrell()
+FePhen.cottrell()
+
+
+###############################################
+# Plot Fe(CN)
+###############################################
+
+fig1 = plt.figure(1, figsize=(16,9))
+FeCN.plot("CA", technique="CA", position=221, current_units="mA")
+FeCN.plot("Cottrell", technique="CA", position=222, current_units="mA")
+FeCN.plot("IV", technique="CV", position=223, current_units="mA")
+FeCN.plot("IV", technique="CV sim", position=224, current_units="mA")
+
+caption1 = "Figure 1. Top-Left: Chronoamperometry (potential step) experiment data; Top-Right: Cottrell plots of CA data; \n Bottom-Left: experimental cyclic voltammetry data; Bottom-Right: simulated cyclic voltammetry data."
+fig1.text(0.15, -0.03, caption1, fontsize=14, va='bottom', ha='left', wrap=True);
+fig1.suptitle(r'${{Fe(CN)}_{6}}^{3-/4-} \ Redox \ Couple$', fontsize=24);
+#print('\n\n')
+
+
+###############################################
+# Plot Fe2+
+###############################################
+
+fig2 = plt.figure(2, figsize=(16,9))
+FeSO4.plot("CA", technique="CA", position=221, current_units="mA")
+FeSO4.plot("Cottrell", technique="CA", position=222, current_units="mA")
+FeSO4.plot("IV", technique="CV", position=223, current_units="mA")
+FeSO4.plot("IV", technique="CV sim", position=224, current_units="mA")
+
+caption2 = "Figure 2. Top-Left: Chronoamperometry (potential step) experiment data; Top-Right: Cottrell plots of CA data; \n Bottom-Left: experimental cyclic voltammetry data; Bottom-Right: simulated cyclic voltammograms."
+fig2.text(0.15, -0.03, caption2, fontsize=14, va='bottom', ha='left', wrap=True);
+fig2.suptitle(r'${{Fe}_{(aq)}}^{2+/3+} \ Redox \ Couple$', fontsize=24);
+#print('\n\n')
+
+
+###############################################
+# Plot Fe(phen)
+###############################################
+
+# Define figure object
+fig3 = plt.figure(3, figsize=(16,9))
+FePhen.plot("CA", trials=[3,4,5], position=221, current_units="mA")
+FePhen.plot("Cottrell", technique="CA", position=222, current_units="mA")
+FePhen.plot("IV", technique="CV", position=223, current_units="mA")
+FePhen.plot("IV", technique="CV sim", position=224, current_units="mA")
+
+caption3 = "Figure 3. Top-Left: Chronoamperometry (potential step) experiment data; Top-Right: Cottrell plots of CA data; \n Bottom-Left: experimental cyclic voltammetry data; Bottom-Left: simulated cyclic voltammograms."
+fig3.text(0.15, -0.03, caption3, fontsize=14, va='bottom', ha='left', wrap=True);
+fig3.suptitle(r'${{Fe(phen)}_{3}}^{2+/3+} \ Redox \ Couple$', fontsize=24);
+#print('\n\n')
 ```
-![Untitled](https://github.com/user-attachments/assets/5b5c029d-2982-4092-9662-5eb0a7e134ac)
+![Untitled](https://github.com/user-attachments/assets/6ff634f5-50d5-42a5-aa4a-c6a7f6754c2e)
 
-![Untitled](https://github.com/user-attachments/assets/295a0599-0824-4461-b35b-4815f5f8a78b)
+![Untitled-1](https://github.com/user-attachments/assets/662690a3-3033-4d3f-bd57-8c874c58d95f)
 
-![Untitled](https://github.com/user-attachments/assets/75b0d1f3-60c3-4e1b-9cfe-3d05ea735f25)
+![Untitled](https://github.com/user-attachments/assets/c3782611-cacc-481e-a5e1-e040e0c45ea9)
 
-![Untitled](https://github.com/user-attachments/assets/1ee2efe1-12d0-4443-b15d-ef1764e9a699)
 
