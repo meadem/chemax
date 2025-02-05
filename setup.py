@@ -13,7 +13,7 @@ setup(
         'Operating System :: OS Independent',
     ],
     install_requires=[
-        'datetime.datetime', 
+        'datetime', 
         'numbers', 
         'time', 
         'os', 
