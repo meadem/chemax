@@ -1,0 +1,14 @@
+LICENSE
+README.md
+setup.cfg
+setup.py
+chemax/Z_fit.py
+chemax/__init__.py
+chemax/chemax.py
+chemax/levitch.py
+chemax/nernst.py
+chemax/reference_electrodes.py
+chemax.egg-info/PKG-INFO
+chemax.egg-info/SOURCES.txt
+chemax.egg-info/dependency_links.txt
+chemax.egg-info/top_level.txt

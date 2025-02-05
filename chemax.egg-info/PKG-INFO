@@ -1,0 +1,10 @@
+Metadata-Version: 2.1
+Name: chemax
+Version: 0.1.0
+Summary: A simple Python package for routine echem data analyses
+Home-page: https://github.com/meadem/chemax
+Author: Max Meade
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+License-File: LICENSE
