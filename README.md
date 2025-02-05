@@ -4,7 +4,7 @@ I've since taught myself python Classes, and my goal is to build a class object 
 - Import and hold an arbitrarily large number of experiment data files
 - Manipulate data, e.g., iR-correct voltage, or calculate current density automatically when current and area are known
 - Extract useful values, like series resistances, diffusion coefficients, and Tafel slopes
-- plot well-formatted curves with minimal user input (CV, IV, nyquist, bode, Tafel, Cottrell)
+- plot well-formatted curves with minimal user input (CV, IV, Nyquist, Bode, Tafel, Cottrell)
 
 All of the files here are planned for eventual merging and inclusion into the chemax file.
 
