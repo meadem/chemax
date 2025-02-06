@@ -1,14 +1,15 @@
 # CHEMAX
-Working on expanding, refactoring, and combining several pieces of code I wrote as a student for electrochemical data analysis. 
-I've since taught myself python Classes, and my goal is to build a class object that can do the following with minimal typing on the user end:
+for electrochemical data analysis. goal is to build a class object that can do the following with minimal typing on the user end:
 - Import and hold an arbitrarily large number of experiment data files
 - Manipulate data, e.g., iR-correct voltage, or calculate current density automatically when current and area are known
 - Extract useful values, like series resistances, diffusion coefficients, and Tafel slopes
 - plot well-formatted curves with minimal user input (CV, IV, Nyquist, Bode, Tafel, Cottrell)
 
-All of the files here are planned for eventual merging and inclusion into the chemax file.
-
-Below is an example of how to use chemax. In the future I'd like to expand this readme to explain more thoroughly, but for now these demos will have to suffice.
+Below is an example of how to use chemax (will expand in the future). Note the following:
+- custom load() method that allows for (well-titled) files to be loaded with ease from different directories, and labeled with their respective instrumental technique
+- Cottrell analysis performed with a single line of code, pulling out the calculated diffusion coefficient and rate constants
+- many traces are plotted in very few lines, while still applying appropriate formatting and labelling
+- scan rates (for CV) and potential steps (for CA) are automatically calculated from the data and used as the default label for the plot traces.
 
 --------------------------------------
 
@@ -20,16 +21,16 @@ Below is an example of how to use chemax. In the future I'd like to expand this 
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
-import chemax
+
+from chemax.chemax import Experiment
 
 
 ###############################################
 # Create object and import data
 ###############################################
 
-FeCN = chemax.Experiment(name='FeCN', 
-                         description='CV and CA data for FeCN chemistry')
+FeCN = Experiment(name='FeCN',
+                  description='CV and CA data for FeCN chemistry')
 
 FeCN.load(20, technique='CA', file='CA_data_', folder='data/wk1', step=2, filetype='.txt', silent=True)
 FeCN.load(7, technique='CV', file='CV_data_', folder='data/wk1', filetype='.txt', silent=True)
