@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+# Local imports
+from chemax.reference_electrodes import REFERENCE_ELECTRODES
+
+
 class Experiment():
     '''
     Class object for importing, processing, and plotting echem data.
@@ -288,6 +292,18 @@ class Experiment():
         except:
             raise Exception("Error while iR-correcting voltage data for {self.name}.")
     
+
+    def extract_E0_from_CV(self, trial=None, silent=False):
+        '''
+        Extract the standard reduction potential, E0, from the CV's anodic and cathodic peak current.
+        '''
+        x = self.data[trial]['Voltage']
+        x = self.data[trial]['Current']
+        Eo = x[y == y.max()].max()
+        Er = x[y == y.min()].max()
+        E0 = (Eo + Er) / 2
+        self.data[trial].E0 = E0
+
     
     def linear_function(self, x, slope=None, y_int=None):
         y = slope*x + y_int
@@ -489,6 +505,13 @@ class Experiment():
         try:
             # setup/pre-processing for plotting
 
+            # This is for labeling voltage as being relative to the reference electrode (implement later)
+            display_RE = ''
+            if self.display_RE is None:
+                display_RE = '???'
+            else:
+                display_RE = self.display_RE
+
             FILTER_START = trim[0]
             FILTER_STOP = trim[1]
             
@@ -512,7 +535,7 @@ class Experiment():
         if type_ == "IV":
             
             if xlabel == None:
-                xlabel = "Potential (V)"
+                xlabel = f"Potential (V v. {display_RE})"
             if ylabel == None:
                 ylabel = "Current (A)"
             
@@ -564,7 +587,7 @@ class Experiment():
         if type_ == "IV-corrected":
             
             if xlabel == None:
-                xlabel = "Corrected Potential (V)"
+                xlabel = f"Corrected Potential (V v. {display_RE})"
             if ylabel == None:
                 ylabel="Current (A)"
             
@@ -614,7 +637,7 @@ class Experiment():
         if type_ == "Tafel":
             
             if xlabel == None:
-                xlabel = xlabel = r'$\eta \: (V)$'
+                xlabel = xlabel = r'$\eta \: (V v. {E}^{0})$'
             if ylabel == None:
                 ylabel = r'$log|i| \: (i \ in \ A)$'
             
@@ -850,12 +873,18 @@ class Experiment():
             plt.legend()  
     
     
-    def tafel(self, trial=None, voltage_bounds=[None,None], E_eq=0.0):
+    def tafel(self, trials=[], voltage_bounds=[None,None], E_eq=0.0):
         '''
         Perform tafel analysis on the specified trial.
         '''
 
         try:
+            # if a list of trials is not passed, default is to perform analysis on all CV data
+            if not trials:
+                for trial in self.metadata:
+                    if self.metadata[trial]["technique"] == "CV":
+                        trials.append(trial)
+        
             # Define some constants and other values
             F = 96485                   # Faraday's constant (C/mol)
             R = 8.3145                  # Gas Constant (8.3145 L atm /mol /K)
@@ -868,54 +897,57 @@ class Experiment():
                 larger_potential = E_1
                 E_1 = smaller_potential
                 E_2 = larger_potential
-            
-            # Check if trial data has already been iR-corrected, and correct it if not
-            if "iR-Corrected Voltage" not in self.data[trial]:
-                self.correct_voltage("iR", trial=[trial])
-            
-            # Define dataset for Tafel analysis
-            tafel_data = self.data[trial]
-            tafel_data = tafel_data[tafel_data['ox/red'] == 0]            # Filter for cycle's reductive sweep (EC-lab convention: ox.=1, red.=0)
-            tafel_data = tafel_data[tafel_data['Cycle'] == 1.0]           # First cycle only
-            tafel_data = tafel_data[tafel_data['Voltage'] >= E_1]         # Apply lower voltage bound
-            tafel_data = tafel_data[tafel_data['Voltage'] <= E_2]         # Apply upper voltage bound
-            tafel_data = tafel_data[tafel_data['Current'] != 0]           # Filter for non-zero current only
-        except:
-            raise Exception(f"Error while pre-processing/filtering data prior to Tafel analysis for trial {trial} for {self.name}.")
         
-        try:
-            # Calculate overpotential and log(i) from voltage and current data
-            overpotential = self.data[trial]["Tafel overpotential"] = tafel_data['Corrected Voltage'] - E_eq
-            self.update_history(f"Tafel overpotential calculated and saved for trial {trial}.")
-            log_i = self.data[trial]["Tafel current"] = np.log10(abs(tafel_data['Current']))
-            self.update_history(f"Tafel current calculated and saved for trial {trial}.")
-            
-            # Define highest index x value on which to perform Tafel regression (this fudge factor will ideally be eliminated in the future)
-            index_limit = round(len(overpotential)/4)
-            
-            # Extract regression parameters
-            tafel_slope, tafel_yint = np.polyfit(overpotential[:index_limit], log_i[:index_limit], 1)
         except:
-            raise Exception(f"Error while calculating overpotential, log(i), Tafel slope, or other parameter during Tafel analysis for trial {trial} in {self.name}.")
+            raise Exception(f"Error while selecting trials and setting up for Tafel analysis for {self.name}.")
         
+        for trial in trials:
+            try:
+                # Check if trial data has already been iR-corrected, and correct it if not
+                if "iR-Corrected Voltage" not in self.data[trial]:
+                    self.correct_voltage("iR", trial=[trial])
+                
+                # Define dataset for Tafel analysis
+                tafel_data = self.data[trial]
+                tafel_data = tafel_data[tafel_data['ox/red'] == 0]            # Filter for cycle's reductive sweep (EC-lab convention: ox.=1, red.=0)
+                tafel_data = tafel_data[tafel_data['Cycle'] == 1.0]           # First cycle only
+                tafel_data = tafel_data[tafel_data['Voltage'] >= E_1]         # Apply lower voltage bound
+                tafel_data = tafel_data[tafel_data['Voltage'] <= E_2]         # Apply upper voltage bound
+                tafel_data = tafel_data[tafel_data['Current'] != 0]           # Filter for non-zero current only
+            except:
+                raise Exception(f"Error while pre-processing and/or filtering data prior to Tafel analysis for {self.name} trial {trial}.")
 
-        
-        try:
-            # Save extracted values
-            # Tafel slope (V/dec)
-            self.tafel_slope_V = tafel_slope
-            self.update_history(f"Tafel slope (V) calculated and saved from Tafel analysis of trial {trial}.")
-            # Tafel y-intercept
-            self.tafel_yint = tafel_yint
-            self.update_history(f"Tafel y-intercept calculated and saved from Tafel analysis of trial {trial}.")
-            # Tafel slope (mv/dec)
-            self.tafel_slope_mV = tafel_slope * 1000
-            self.update_history(f"Tafel slope (mV) calculated and saved from Tafel analysis of trial {trial}.")
-            # exchange current (mA)
-            self.i_0 = 10**tafel_yint * 1000
-            self.update_history(f"Exchange current (mA) calculated and saved from Tafel analysis of trial {trial}.")
-        except:
-            raise Exception(f"Error while saving extracted values after Tafel analysis for trial {trial} in {self.name}.")
+            try:
+                # Calculate overpotential and log(i) from voltage and current data
+                overpotential = self.data[trial]["Tafel overpotential"] = tafel_data['Corrected Voltage'] - E_eq
+                self.update_history(f"Tafel overpotential calculated and saved for trial {trial}.")
+                log_i = self.data[trial]["Tafel current"] = np.log10(abs(tafel_data['Current']))
+                self.update_history(f"Tafel current calculated and saved for trial {trial}.")
+                
+                # Define highest index x value on which to perform Tafel regression (this fudge factor will ideally be eliminated in the future)
+                index_limit = round(len(overpotential)/4)
+                
+                # Extract regression parameters
+                tafel_slope, tafel_yint = np.polyfit(overpotential[:index_limit], log_i[:index_limit], 1)
+            except:
+                raise Exception(f"Error while calculating overpotential, log(i), Tafel slope, or other parameter during Tafel analysis for trial {trial} in {self.name}.")
+            
+            try:
+                # Save extracted values
+                # Tafel slope (V/dec)
+                self.data[trial].tafel_slope_V = tafel_slope
+                self.update_history(f"Tafel slope (V) calculated and saved from Tafel analysis of trial {trial}.")
+                # Tafel y-intercept
+                self.data[trial].tafel_yint = tafel_yint
+                self.update_history(f"Tafel y-intercept calculated and saved from Tafel analysis of trial {trial}.")
+                # Tafel slope (mv/dec)
+                self.data[trial].tafel_slope_mV = tafel_slope * 1000
+                self.update_history(f"Tafel slope (mV) calculated and saved from Tafel analysis of trial {trial}.")
+                # exchange current (mA)
+                self.data[trial].i_0 = 10**tafel_yint * 1000
+                self.update_history(f"Exchange current (mA) calculated and saved from Tafel analysis of trial {trial}.")
+            except:
+                raise Exception(f"Error while saving extracted values after Tafel analysis for trial {trial} in {self.name}.")
     
 
     def update_history(self, entry):

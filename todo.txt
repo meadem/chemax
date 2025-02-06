@@ -1,11 +1,12 @@
-# tafel method needs to accept multiple trials and default to analyzing all CV experiments
-
-# I should try altering data so that it's just a df and not a df inside a dict
-
-# in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode (e.g., V v. SHE...)
+# in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode, e.g., (r'$Ewe \: (V \ v. \ SCE)
+    # be careful that the label matches the reality; best approach is probably to implement auto-RE correction during init
+        # looks like I already did, but I don't like how noisy it is (it's like every trial) and I need to just double-check that it complies with the above
 
 # would be nice if tafel() method printed something out when it ran, like the tafel plot at least and maybe also the corrected I-V curve
 
 # add method for resetting the data (and/or undoing the most recent load operation?..)
 
 # NEED TO UPDATE THE BODE CODE BLOCK TO ALLOW PLOTTING OF MULTIPLE PLOTS (also add try/catch)
+
+# diffusion coefficient print statement at the end of the cottrell method is a little noisy, especially when performed for many CA trials
+
