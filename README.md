@@ -9,6 +9,7 @@ Below is an example of how to use chemax (will expand in the future). Note the f
 - custom load() method that allows for (well-titled) files to be loaded with ease from different directories, and labeled with their respective instrumental technique
 - Cottrell analysis performed with a single line of code, pulling out the calculated diffusion coefficient and rate constants
 - many traces are plotted in very few lines, while still applying appropriate formatting and labelling
+- scan rates (for CV) and potential steps (for CA) are automatically calculated from the data and used as the default label for the plot traces.
 
 --------------------------------------
 
