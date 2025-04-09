@@ -305,16 +305,41 @@ class Experiment():
         self.data[trial].E0 = E0
 
     
+    def find_header(self, file_path, search_string):
+        '''
+        Find line number for header during file load operations.
+
+        Parameters
+        ----------
+        file_path : STR
+            relative path to file, including file name and suffix
+        search_string : STR
+            Bit of text to locate in file
+
+        Returns
+        -------
+        Integer result representing line number for header in specified file
+
+        '''
+        
+        result = None
+        with open(file_path, 'r') as working_file:
+            for line_number, line in enumerate(working_file, start=1):
+                if search_string in line:
+                    result = line_number
+        return result
+    
+    
     def linear_function(self, x, slope=None, y_int=None):
         y = slope*x + y_int
         return y
     
 
-    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', file_numbers=None, technique=None, silent=False):
+    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', file_numbers=None, technique=None, potentiostat=None, silent=False):
         '''
         Upload data files into an Experiment object as a pandas dataframe.
         '''
-
+        
         # tag if this operation is an instantiation (alternative is an append operation)
         _IS_INSTANTIATION = not hasattr(self, "data")
         
@@ -365,10 +390,20 @@ class Experiment():
                 EXTERNAL_DATA_INDEX = DATA_INDICES[INTERNAL_DATA_INDEX]
                 FILE_NAME = file + str(EXTERNAL_DATA_INDEX) + filetype
                 FILE_PATH = os.path.join(folder, FILE_NAME)
-                data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                
+                # Read file into memory; check if potentiostat info is given and modify call to pd.read_csv accordingly
+                if potentiostat.upper() == "GAMRY":
+                    HEADER = self.find_header(FILE_PATH, "TABLE")
+                    data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, header=HEADER, sep='\t', engine='python', encoding='unicode_escape', skiprows=[HEADER+1])
+                elif potentiostat.upper() == "BIOLOGIC":
+                    data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                else:
+                    data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                
                 metadata[INTERNAL_DATA_INDEX] = dict(source=FILE_PATH, technique=technique)
                 if not silent:
                     print(f"Data file {FILE_PATH} successfully imported (INDEX={INTERNAL_DATA_INDEX}) for {self.name}.")
+        
         except:
             raise Exception(f"Error while importing data files from {folder} into {self.name}.")
         
@@ -393,14 +428,17 @@ class Experiment():
                            "E (V)":VOLTAGE_HEADER,
                            "EWE/MV":VOLTAGE_HEADER,
                            "E (MV)":VOLTAGE_HEADER,
+                           "VF":VOLTAGE_HEADER,
                            "CURRENT":CURRENT_HEADER,
                            "<I>/A":CURRENT_HEADER,
                            "<I>/MA":CURRENT_HEADER,
                            "I/MA":CURRENT_HEADER,
                            "I/A":CURRENT_HEADER,
+                           "IM":CURRENT_HEADER,
                            "TIME (S)":TIME_HEADER,
                            "TIME":TIME_HEADER,
                            "TIME/S":TIME_HEADER,
+                           "T":TIME_HEADER,
                            "CYCLE":CYCLE_HEADER,
                            "CYCLE NUMBER":CYCLE_HEADER,
                            "POWER":POWER_HEADER,
@@ -408,12 +446,17 @@ class Experiment():
                            "P (W)":POWER_HEADER,
                            "P/W":POWER_HEADER,
                            "FREQ/HZ":FREQUENCY_HEADER,
+                           "FREQ":FREQUENCY_HEADER,
                            "RE(Z)/OHM":ZREAL_HEADER,
+                           "ZREAL":ZREAL_HEADER,
                            "-IM(Z)/OHM":ZIMAG_HEADER,
+                           "ZIMAG":ZIMAG_HEADER,
                            "|Z|/OHM":Z_HEADER,
+                           "ZMOD":Z_HEADER,
                            "PHASE(Z)/DEG":PHASE_ANGLE_HEADER,
+                           "ZPHZ":PHASE_ANGLE_HEADER,
                           }
-
+            
             # Apply header standardization (also: convert current data from mA to A)
             for sheet in data:
                 for column_name in data[sheet]:
@@ -580,6 +623,47 @@ class Experiment():
                                 label=_label)
                     else:
                         raise NameError("Units not found or other error while plotting I-V curve.")
+                
+                except:
+                    raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
+        
+        if type_ == "CP":
+            
+            if xlabel == None:
+                xlabel = "Time (s)"
+            if ylabel == None:
+                ylabel = "Voltage (V)"
+            
+            plt.xlabel(xlabel, fontsize=16)
+            plt.ylabel(ylabel, fontsize=16)
+
+            for trial in trials:
+                try:
+                    # Use RE-Corrected Voltage if available
+                    VOLTAGE = None
+                    TIME = self.data[trial]["Time"]
+                    if "RE-Corrected Voltage" in self.data[trial].columns:
+                        VOLTAGE = self.data[trial]["RE-Corrected Voltage"]
+                    else:
+                        VOLTAGE = self.data[trial]["Voltage"]
+                    
+                    # if not label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
+                    
+                    # Plot using appropriate units and labeling
+                    if voltage_units.upper() == "V":
+                        plt.plot(TIME[FILTER_START:FILTER_STOP],
+                                 VOLTAGE[FILTER_START:FILTER_STOP],
+                                 label=_label)
+                    elif voltage_units.upper() == "MV":
+                        plt.xlabel("Voltage (mV)")
+                        plt.plot(TIME[FILTER_START:FILTER_STOP],
+                                 VOLTAGE[FILTER_START:FILTER_STOP]*1000,
+                                 label=_label)
+                    else:
+                        raise NameError("Units not found or other error while plotting CP curve.")
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
@@ -792,7 +876,7 @@ class Experiment():
             for trial in trials:
                 try:
                     plt.scatter(self.data[trial]["Z_real"][FILTER_START:FILTER_STOP],
-                                self.data[trial]["Z_imag"][FILTER_START:FILTER_STOP],
+                                abs(self.data[trial]["Z_imag"][FILTER_START:FILTER_STOP]),
                                 label=label)
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
@@ -804,7 +888,7 @@ class Experiment():
                     CENTER_INDEX = zoom[1]
                     
                     X_CENTER = self.data[trial]["Z_real"][CENTER_INDEX]
-                    Y_CENTER = self.data[trial]["Z_imag"][CENTER_INDEX]
+                    Y_CENTER = abs(self.data[trial]["Z_imag"][CENTER_INDEX])
                     
                     CURRENT_LOWER_BOUND_X, CURRENT_UPPER_BOUND_X = plt.xlim()
                     DOMAIN = abs(CURRENT_UPPER_BOUND_X - CURRENT_LOWER_BOUND_X)

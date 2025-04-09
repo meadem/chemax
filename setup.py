@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='chemax',
-    version='0.1.1',
+    version='0.1.2',
     packages=find_packages(),  # This finds all packages inside chemax/
     description='A simple Python package for routine echem data analyses',
     author='Max Meade',
