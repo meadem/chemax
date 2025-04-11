@@ -31,7 +31,7 @@ class Experiment():
         description = experiment description
         RE = Reference Electrode used to acquire the data
         display_RE = Reference Electrode used to correct the voltage for display
-        area = working electrode area
+        area = working electrode area (cm^2)
         Ru = uncompensated series resistance
         '''
 
@@ -260,6 +260,7 @@ class Experiment():
             if check.upper() == "N":
                 print("REJECTED")
                 self.update_history(f"Failed to extract uncompensated series resistance from {self.name} trial {trial} impedance data.")
+                return
             elif check.upper() == "Y":
                 print("ACCEPTED")
                 self.Ru = result
@@ -304,6 +305,35 @@ class Experiment():
         E0 = (Eo + Er) / 2
         self.data[trial].E0 = E0
 
+    
+    def extract_IV_values(self):
+        '''
+        Extract voltage and power from last minute of each CP trial. 
+        
+        (Current is already extracted and saved during load)
+        
+        TO DO: 
+            - Need conditional for getting to power v. power density
+            - Save Power to self.data
+        '''
+        for trial in self.data:
+            if self.metadata[trial]['technique'].upper() == "CP":
+                # Time
+                TIME = self.data[trial]["Time"]
+                EXPERIMENT_DURATION = TIME.max()                                                    # (in seconds)
+                # Voltage
+                VOLTAGE_SAMPLE = self.data[trial]["Voltage"][TIME > (EXPERIMENT_DURATION - 60)]     # Samples voltage from final 60 seconds
+                VOLTAGE_MEAN = round(VOLTAGE_SAMPLE.mean(), 3)                                      # Averages sampled voltage
+                self.metadata[trial]['I-V Voltage (V)'] = VOLTAGE_MEAN
+                # Current & Power
+                CURRENT = self.metadata[trial]['I-V Current (mA)']
+                POWER = CURRENT * VOLTAGE_MEAN / 1000
+                self.metadata[trial]['I-V Power (W)'] = POWER
+                if self.area != None:
+                    CURRENT_DENSITY = self.metadata[trial]['I-V Current Density (mA/cm2)']
+                    POWER_DENSITY = CURRENT_DENSITY * VOLTAGE_MEAN / 1000
+                    self.metadata[trial]['I-V Power Density (W/cm2)'] = POWER_DENSITY
+    
     
     def find_header(self, file_path, search_string):
         '''
@@ -420,6 +450,7 @@ class Experiment():
             ZIMAG_HEADER = "Z_imag"
             Z_HEADER = "Z"
             PHASE_ANGLE_HEADER = "Phase Angle"
+            GEIS_DC_CURRENT_HEADER = "GEIS DC Current (A)"
 
             # A dictionary of headers I've observed previously and what to replace them with when found.
             HEADER_DICT = {"VOLTAGE":VOLTAGE_HEADER,
@@ -455,6 +486,7 @@ class Experiment():
                            "ZMOD":Z_HEADER,
                            "PHASE(Z)/DEG":PHASE_ANGLE_HEADER,
                            "ZPHZ":PHASE_ANGLE_HEADER,
+                           "IDC":GEIS_DC_CURRENT_HEADER
                           }
             
             # Apply header standardization (also: convert current data from mA to A)
@@ -470,17 +502,22 @@ class Experiment():
         except:
             raise Exception(f"Error during header standardization while importing data from {folder} for {self.name}.")
         
-        
+        # assign more metadata (easier to do these ones after header standardization)
         try:
-            # assign more metadata (easier to do these ones after header standardization)
             for trial in data:
+                
+                # CA
                 # calculate applied voltage from data for CA experiments; set as default label
+                # written for Biologic potentiostat data; may need modification for other files
                 if metadata[trial]['technique'].upper() == "CA":
                     VOLTAGE = data[trial]["Voltage"]*1000
                     applied_voltage = str(int(VOLTAGE.mean())) + " mV"
                     metadata[trial]['applied voltage'] = applied_voltage
                     metadata[trial]['default label'] = applied_voltage
+                
+                # CV, CV SIM, LSC
                 # calculate scan rate from data for CV, etc., experiments; set as default label
+                # written for Biologic potentiostat data; may need modification for other files
                 elif metadata[trial]['technique'].upper() in ["CV", "CV SIM", "LSV"]:
                     TIME = data[trial]["Time"]
                     VOLTAGE = data[trial]["Voltage"]*1000
@@ -496,10 +533,52 @@ class Experiment():
                     SCAN_RATE = str(int(VOLTAGE_RANGE / TIME_RANGE)) + " mV/s"
                     metadata[trial]['scan rate'] = SCAN_RATE
                     metadata[trial]['default label'] = SCAN_RATE
+                
+                # CP
+                # Determine current and current density (if electrode area provided) for CP experiments; save for I-V curve analysis and set as default label
+                # Written for Gamry potentiostat data; may need modification for other files
+                elif metadata[trial]['technique'].upper() == "CP":
+                    TIME = data[trial]["Time"]
+                    CURRENT = data[trial]["Current"][TIME > 0].mean()*1000      # average current (mA)
+                    CURRENT = int(round(CURRENT))
+                    CURRENT_LABEL = str(CURRENT) + " mA"
+                    metadata[trial]['I-V Current (mA)'] = CURRENT
+                    metadata[trial]['applied current'] = CURRENT_LABEL
+                    
+                    # Use current density when electrode area is provided
+                    if self.area != None:
+                        AREA = self.area
+                        CURRENT_DENSITY = int(round(CURRENT / AREA))
+                        CURRENT_DENSITY_LABEL = str(CURRENT_DENSITY) + r"$\, mA \, {cm}^{-2}$"
+                        metadata[trial]['I-V Current Density (mA/cm2)'] = CURRENT_DENSITY 
+                        metadata[trial]['applied current density'] = metadata[trial]['default label'] = CURRENT_DENSITY_LABEL
+                    
+                    # Use current when electrode area is not provided
+                    else:
+                        metadata[trial]['default label'] = CURRENT_LABEL
+                
+                # GEIS
+                # Determine DC current used for GEIS experiment and save as default label
+                # Written for Gamry potentiostat data; may need modification for other files
+                elif metadata[trial]['technique'].upper() == "GEIS":
+                    GEIS_DC_CURRENT = data[trial]["GEIS DC Current (A)"] * 1000 # convert to mA
+                    CURRENT_MEAN = GEIS_DC_CURRENT.mean()
+                    CURRENT_LABEL = None
+                    if self.area != None:
+                        CURRENT_DENSITY_MEAN = CURRENT_MEAN / self.area
+                        CURRENT_LABEL = str(int(round(CURRENT_DENSITY_MEAN))) + r"$\, mA \, {cm}^{-2}$"
+                    else:
+                        CURRENT_LABEL = str(int(round(CURRENT_MEAN))) + " mA"
+                    metadata[trial]['default label'] = CURRENT_LABEL
+                    
+                
                 else:
                     metadata[trial]['applied voltage'] = None
                     metadata[trial]['scan rate'] = None
                     metadata[trial]['default label'] = None
+                    metadata[trial]['applied current density'] = None
+                    metadata[trial]['applied current'] = None
+                    
         except:
             raise Exception(f"Error while assigning metadata during loading for {self.name} trial {trial}.")
         
@@ -540,7 +619,7 @@ class Experiment():
     
     
     def plot(self, type_, technique=None, title="", label=None, trials=None, position=111, trim=[None,None], zoom=[None,None],
-             xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A"):
+             xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A", density=False):
         '''
         Plot the specified curve type, with pre-specified labels and formatting for each plot type.
         '''
@@ -575,7 +654,7 @@ class Experiment():
         except:
             raise Exception(f"Error during setup/pre-processing while attempting to plot a {type_} figure for {self.name}.")
         
-        if type_ == "IV":
+        if type_ == "CV":
             
             if xlabel == None:
                 xlabel = f"Potential (V v. {display_RE})"
@@ -622,7 +701,7 @@ class Experiment():
                                 CURRENT[FILTER_START:FILTER_STOP]*1000, 
                                 label=_label)
                     else:
-                        raise NameError("Units not found or other error while plotting I-V curve.")
+                        raise NameError("Units not found or other error while plotting CV curve.")
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
@@ -647,7 +726,7 @@ class Experiment():
                     else:
                         VOLTAGE = self.data[trial]["Voltage"]
                     
-                    # if not label is provided, use default label, if available
+                    # if no label is provided, use default label, if available
                     _label = label
                     if label is None:
                         _label = self.metadata[trial]["default label"]
@@ -668,7 +747,7 @@ class Experiment():
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
         
-        if type_ == "IV-corrected":
+        if type_ == "CV-corrected":
             
             if xlabel == None:
                 xlabel = f"Corrected Potential (V v. {display_RE})"
@@ -713,7 +792,7 @@ class Experiment():
                                  self.data[trial]["Current"][FILTER_START:FILTER_STOP]*1000, 
                                  label=_label)
                     else:
-                        raise NameError("Units not found or other error while plotting I-V curve.")
+                        raise NameError("Units not found or other error while plotting corrected CV curve.")
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
@@ -873,13 +952,18 @@ class Experiment():
             plt.xlabel(xlabel, fontsize=16)
             plt.ylabel(ylabel, fontsize=16)
             
-            for trial in trials:
-                try:
+            try:
+                for trial in trials:
+                    # if no label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
+                    
                     plt.scatter(self.data[trial]["Z_real"][FILTER_START:FILTER_STOP],
                                 abs(self.data[trial]["Z_imag"][FILTER_START:FILTER_STOP]),
-                                label=label)
-                except:
-                    raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
+                                label=_label)
+            except:
+                raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
             
             try:
                 # auto-formatting of Nyquist plot
@@ -952,6 +1036,83 @@ class Experiment():
             gca().spines['right'].set_color('red')
             plt.yaxis.label.set_color('red')
             gca().tick_params(axis='y', colors='red')
+        
+        if type_ == "IV":
+            
+            self.extract_IV_values()
+            
+            if xlabel == None:
+                if density:
+                    xlabel = r"$Current \, Density \, (mA \, {cm}^{-2})$"
+                else:
+                    xlabel = "Current (mA)"
+            if ylabel == None:
+                ylabel = "Voltage (V)"
+            ylabel2 = None
+            if density:
+                ylabel2 = r"$Power \, Density \, (W \, {cm}^{-2})$"
+            else:
+                ylabel2 = "Power (W)"
+            
+            plt.xlabel(xlabel, fontsize=16)
+            plt.ylabel(ylabel, fontsize=16)
+            
+            try:
+                CURRENT = []
+                VOLTAGE = []
+                POWER = []
+                
+                for trial in self.metadata:
+                    if self.metadata[trial]['technique'].upper() == "CP":
+                        if density:
+                            CURRENT.append(self.metadata[trial]['I-V Current Density (mA/cm2)'])
+                            VOLTAGE.append(self.metadata[trial]['I-V Voltage (V)'])
+                            POWER.append(self.metadata[trial]['I-V Power Density (W/cm2)'])
+                        else:
+                            CURRENT.append(self.metadata[trial]['I-V Current (mA)'])
+                            VOLTAGE.append(self.metadata[trial]['I-V Voltage (V)'])
+                            POWER.append(self.metadata[trial]['I-V Power (W)'])
+                
+                plt.scatter(CURRENT[FILTER_START:FILTER_STOP],
+                            VOLTAGE[FILTER_START:FILTER_STOP], 
+                            label=label,
+                            color="blue",
+                            alpha=0.6,
+                            edgecolors='black'
+                            )
+                plt.plot(CURRENT[FILTER_START:FILTER_STOP],
+                         VOLTAGE[FILTER_START:FILTER_STOP], 
+                         label=None,
+                         color="blue",
+                         alpha=0.6,
+                         )
+                ax1 = plt.gca()
+                ax1.spines['left'].set_color('blue')
+                ax1.yaxis.label.set_color('blue')
+                ax1.tick_params(axis='y', colors='blue')
+
+                ax2 = plt.twinx(ax1)
+                plt.ylabel(ylabel2, fontsize=16)
+                plt.scatter(CURRENT[FILTER_START:FILTER_STOP],
+                            POWER[FILTER_START:FILTER_STOP], 
+                            label=label,
+                            color="red",
+                            alpha=0.6,
+                            edgecolors='black'
+                            )
+                plt.plot(CURRENT[FILTER_START:FILTER_STOP],
+                         POWER[FILTER_START:FILTER_STOP], 
+                         label=None,
+                         color="red",
+                         alpha=0.6,
+                         )
+                ax2.spines['right'].set_color('red')
+                ax2.yaxis.label.set_color('red')
+                ax2.tick_params(axis='y', colors='red')
+            
+            except:
+                raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
+        
         
         if legend:
             plt.legend()  

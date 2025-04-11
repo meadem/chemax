@@ -10,3 +10,9 @@
 
 # diffusion coefficient print statement at the end of the cottrell method is a little noisy, especially when performed for many CA trials
 
+'''
+- Calculation of voltage decay for CP data
+- Calculation of faradaic yield
+- Calculation of utilization, etc.
+- I need the ability to zoom in on EIS/CP/etc. data using a filter that refers directly to the value on the axis (i.e., not the datum index)
+'''
