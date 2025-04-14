@@ -15,4 +15,8 @@
 - Calculation of faradaic yield
 - Calculation of utilization, etc.
 - I need the ability to zoom in on EIS/CP/etc. data using a filter that refers directly to the value on the axis (i.e., not the datum index)
+- CP data may need to be plotted in multiple different ways:
+    - stack/series
+    - group by sequence/current
+    - Whether plotted individually or using any theme mentioned above, the plot should scale the zoom automatically
 '''

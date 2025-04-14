@@ -619,7 +619,7 @@ class Experiment():
     
     
     def plot(self, type_, technique=None, title="", label=None, trials=None, position=111, trim=[None,None], zoom=[None,None],
-             xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A", density=False):
+             xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A", density=True, form=None, group=None):
         '''
         Plot the specified curve type, with pre-specified labels and formatting for each plot type.
         '''
@@ -715,34 +715,47 @@ class Experiment():
             
             plt.xlabel(xlabel, fontsize=16)
             plt.ylabel(ylabel, fontsize=16)
-
+            
+            # counter used for 'series' form CP plotting
+            runtime_to_this_point = 0
+            
             for trial in trials:
                 try:
-                    # Use RE-Corrected Voltage if available
-                    VOLTAGE = None
+                    # VOLTAGE = None
                     TIME = self.data[trial]["Time"]
+                    DURATION = TIME.max()
+                    VOLTAGE = self.data[trial]["Voltage"]
+                    
+                    '''
+                    # Use RE-Corrected Voltage if available
                     if "RE-Corrected Voltage" in self.data[trial].columns:
                         VOLTAGE = self.data[trial]["RE-Corrected Voltage"]
                     else:
                         VOLTAGE = self.data[trial]["Voltage"]
+                    '''
                     
                     # if no label is provided, use default label, if available
+                    # before creating an if/else for group == 'current'/'sequence' try using label parameter for sequence
                     _label = label
                     if label is None:
                         _label = self.metadata[trial]["default label"]
                     
                     # Plot using appropriate units and labeling
                     if voltage_units.upper() == "V":
-                        plt.plot(TIME[FILTER_START:FILTER_STOP],
+                        plt.plot(TIME[FILTER_START:FILTER_STOP] + runtime_to_this_point,
                                  VOLTAGE[FILTER_START:FILTER_STOP],
                                  label=_label)
                     elif voltage_units.upper() == "MV":
                         plt.xlabel("Voltage (mV)")
-                        plt.plot(TIME[FILTER_START:FILTER_STOP],
+                        plt.plot(TIME[FILTER_START:FILTER_STOP] + runtime_to_this_point,
                                  VOLTAGE[FILTER_START:FILTER_STOP]*1000,
                                  label=_label)
                     else:
                         raise NameError("Units not found or other error while plotting CP curve.")
+                    
+                    # Update the runtime variable used to array CP data in series instead of stacking
+                    if form == 'series':
+                        runtime_to_this_point += DURATION
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
