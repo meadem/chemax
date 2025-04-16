@@ -14,9 +14,9 @@
 - Calculation of voltage decay for CP data
 - Calculation of faradaic yield
 - Calculation of utilization, etc.
-- I need the ability to zoom in on EIS/CP/etc. data using a filter that refers directly to the value on the axis (i.e., not the datum index)
-- CP data may need to be plotted in multiple different ways:
-    - stack/series
-    - group by sequence/current
-    - Whether plotted individually or using any theme mentioned above, the plot should scale the zoom automatically
+- add ability to set color when using plot() submethod
+    - may require some careful thinking
+- add a 'group' param to the load() submethod to allow for specification of specific groups of data to plot together, etc.
+    - useful, e.g., when you want to plot 4 CP experiments together as one and the other 4 together as one for comparison of step runs
+    - group name can also then be used as the default plotting label
 '''

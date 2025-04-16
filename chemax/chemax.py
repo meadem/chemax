@@ -247,7 +247,7 @@ class Experiment():
             print("-------------------------------------------------------------------------------------")
             plt.figure(figsize=([10,4]))
             self.plot("Nyquist", position=121, trials=[trial], legend=False)
-            self.plot("Nyquist", position=122, trials=[trial], legend=False, zoom=[15, result_index])
+            self.plot("Nyquist", position=122, trials=[trial], legend=False, _zoom=[15, result_index])
             plt.gcf().supxlabel(f"The Ru value extracted from the impedance data for {self.name} trial {trial} is {result} ohms.", 
                                 fontsize=12, y=-0.1)
             plt.show(block=False)
@@ -365,7 +365,9 @@ class Experiment():
         return y
     
 
-    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', file_numbers=None, technique=None, potentiostat=None, silent=False):
+    def load(self, num=1, step=1, filetype='.txt', file='data', folder='data', 
+             file_numbers=None, technique=None, potentiostat=None, silent=False
+             ):
         '''
         Upload data files into an Experiment object as a pandas dataframe.
         '''
@@ -425,8 +427,10 @@ class Experiment():
                 if potentiostat.upper() == "GAMRY":
                     HEADER = self.find_header(FILE_PATH, "TABLE")
                     data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, header=HEADER, sep='\t', engine='python', encoding='unicode_escape', skiprows=[HEADER+1])
+                
                 elif potentiostat.upper() == "BIOLOGIC":
                     data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
+                
                 else:
                     data[INTERNAL_DATA_INDEX] = pd.read_csv(FILE_PATH, sep=None, engine='python', encoding='unicode_escape')
                 
@@ -618,31 +622,132 @@ class Experiment():
             print(f"Data successfully imported from '{folder}' for {self.name}.")
     
     
-    def plot(self, type_, technique=None, title="", label=None, trials=None, position=111, trim=[None,None], zoom=[None,None],
-             xlabel=None, ylabel=None, legend=True, voltage_units="V", current_units="A", density=True, form=None, group=None):
+    def plot(self, type_, technique=None, title="", label=None, trials=None, position=111, trim=[None,None], xlabel=None, ylabel=None,
+             legend=True, voltage_units="V", current_units="A", density=True, series=False, group=False, fontsize=24, 
+             x_zoom=[None,None], y_zoom=[None,None], _zoom=[None,None]):
         '''
-        Plot the specified curve type, with pre-specified labels and formatting for each plot type.
+        Plot the specified curve type in the pyplot figure that currently has focus. Method is designed to make it easy to plot many well-formatted trials together with few commands. Labels and formatting are pre-specified for each plot type.
+        
+        Parameters
+        ----------
+        type_ : STR
+            Type of plot. Currently available type options are:
+                - "CV"
+                    - Cyclic Voltammetry (should also work for LSV)
+                    - X-axis: Voltage        Y-axis: Current
+                - "CV-corrected"
+                    - CV corrected for time and/or iR
+                    - X-axis: Voltage        Y-axis: Current
+                - "CP"
+                    - Chronopotentiometry, aka galvanostatic
+                    - X-axis: Time           Y-axis: Voltage
+                - "CA"
+                    - Chronoamperometry, aka potential-step
+                    - X-axis: Time           Y-axis: Current
+                - "IV"
+                    - I-V curve, aka Polarization curve
+                    - X-axis: Current        Y-axis: Voltage
+                                             Y2-axis: Wattage
+                - "Tafel"
+                    - Tafel analysis of CV or LSV data
+                    - X-axis: Overpotential  Y-axis: log(Current)
+                - "Cottrell"
+                    - Cottrell analysis of CA data
+                    - X-axis: time^(-1/2)    Y-axis: Current
+                - "Nyquist"
+                    - Nyquist analysis of EIS data
+                    - X-axis: Z_real         Y-axis: -Z_imag
+                - "Bode"
+                    - Bode analysis of EIS data
+                    - X-axis: log(Hz)        Y-axis: log(Z)
+                                             Y2-axis: Phase Angle
+        technique : STR, optional
+            Can be used in place of trials param to fetch and plot several traces with one call. (Technique param must be used when loading data using load().)
+            The default is None.
+        title : STR, optional
+            Text used for title of figure/plot.
+            The default is "".
+        label : STR, optional
+            Text used for legend label. Trial labels are usually set by default from information extracted during load(), but can be overridden here, if desired.
+            The default is None.
+        trials : LIST, optional
+            List of integers. Can be used to fetch and plot several traces with one call. Refer to trials' internal indices in the self.data object (also displayed during load() operation if silent=False.)
+            The default is None.
+        position : INT, optional
+            Three digit integer used to specify plotting position within the pyplot figure. Used the same way as the three-digit integers passed to plt.subplot() in the example at the link: https://matplotlib.org/stable/tutorials/pyplot.html#logarithmic-and-other-nonlinear-axes
+            The default is 111.
+        trim : TUPLE, optional
+            Can be used to slice the trial data using known indices. EXAMPLE: data[ trim[0] : trim[1] ]
+            The default is [None,None].
+        xlabel : STR, optional
+            Default x-axis labels used for each type, but can be overridden using xlabel and ylabel params. 
+            The default is None. (which will used the pre-specified default label)
+        ylabel : STR, optional
+            Default x-axis labels used for each type, but can be overridden using xlabel and ylabel params. 
+            The default is None. (which will used the pre-specified default label)
+        legend : BOOL, optional
+            If True, the figure legend is displayed.
+            The default is True.
+        voltage_units : STR, optional
+            Used to specify voltage is plotted in units of "V" (volts) or "mV" (millivolts).
+            The default is "V".
+        current_units : STR, optional
+            Used to specify current is plotted in units of "A" (amperes) or "mA" (milliamperes).
+            The default is "A".
+        density : BOOL, optional
+            If True, current and power data will be displayed as a 'current density' or 'power density' if possible. Will fail if electrode area is not provided.
+            The default is True.
+        series : BOOL, optional
+            If True, plot types with Time as the independent variable will be plotted in chronological sequence instead of graphically 'stacked.'
+            The default is False.
+        group : BOOL, optional
+            If True, all trials passed to plot() will be concatenated together as one data array, and can be labeled and presented as though a single trace. Useful for bundling and labelling sequential tests, e.g., constant-current step-up for conditioning.
+            The default is False.
+        fontsize : INT, optional
+            fontsize is used to specify the axis labels font size; fontsize-6 is used for the axis ticks and legend labels; fontsize+6 is used for the figure title.
+            The default is 24.
+        x_zoom : TUPLE, optional
+            Can be used to zoom the figure using specified x-axis value (not index) boundaries (x_zoom[0]: x_min; x_zoom[1]: x_max).
+            The default is [None,None].
+        y_zoom : TUPLE, optional
+            Can be used to zoom the figure using specified y-axis value (not index) boundaries (y_zoom[0]: y_min; y_zoom[1]: y_max).
+            The default is [None,None].
+        _zoom : TUPLE, optional
+            Can be used to re-scale the figure (i.e., zoom). Usually only used by self.extract_Ru_from_HFR() method. Note that the last plotted trial has focus when zooming.
+            zoom[0]: zoom ratio; passing a value of, e.g., 10, will zoom in 10x around the specified index
+            trim[1]: zoom center index
+            The default is [None,None].
+
+        Returns
+        -------
+        None.
+
         '''
         
+        # setup/pre-processing for plotting
         try:
-            # setup/pre-processing for plotting
-
-            # This is for labeling voltage as being relative to the reference electrode (implement later)
+            
+            # Label voltage as being relative to the reference electrode (implement later)
             display_RE = ''
             if self.display_RE is None:
                 display_RE = '???'
             else:
                 display_RE = self.display_RE
-
+            
+            # apply specified trim, if applicable
             FILTER_START = trim[0]
             FILTER_STOP = trim[1]
             
+            # retrieve current figure and prep for plotting
             plt.gcf()
             plt.subplot(position)
-            plt.title(title)
+            plt.title(title, fontsize=fontsize+6)
             plt.axhline(color='k', linewidth=0.25)
             plt.axvline(color='k', linewidth=0.25)
-
+            plt.xticks(fontsize=fontsize-6)
+            plt.yticks(fontsize=fontsize-6)
+            
+            # Pull in trial numbers from whichever param was used to specify them (trials, technique, or left unspecified)
             if trials is None:
                 if technique is None:
                     trials = self.data
@@ -651,6 +756,7 @@ class Experiment():
                     for trial in self.metadata:
                         if self.metadata[trial]["technique"] == technique:
                             trials.append(trial)
+        
         except:
             raise Exception(f"Error during setup/pre-processing while attempting to plot a {type_} figure for {self.name}.")
         
@@ -661,8 +767,8 @@ class Experiment():
             if ylabel == None:
                 ylabel = "Current (A)"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
 
             for trial in trials:
                 try:
@@ -709,22 +815,48 @@ class Experiment():
         if type_ == "CP":
             
             if xlabel == None:
-                xlabel = "Time (s)"
+                xlabel = "Time (min)"
             if ylabel == None:
                 ylabel = "Voltage (V)"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             # counter used for 'series' form CP plotting
             runtime_to_this_point = 0
             
-            for trial in trials:
-                try:
-                    # VOLTAGE = None
+            # Group data together as one set for plotting if group == True
+            # Current method of copying arrays in place to force append is very inefficient and slow; need to revise later
+            if group == True:
+                group_array = {1:{"Voltage":np.array([]), "Time":np.array([])}}
+                for trial in trials:
                     TIME = self.data[trial]["Time"]
                     DURATION = TIME.max()
+                    UPDATED_TRIAL_TIME = [point + runtime_to_this_point for point in TIME]
+                    group_array[1]["Time"] = np.append(group_array[1]["Time"], UPDATED_TRIAL_TIME)
                     VOLTAGE = self.data[trial]["Voltage"]
+                    group_array[1]["Voltage"] = np.append(group_array[1]["Voltage"], VOLTAGE)
+                    if series == True:
+                        runtime_to_this_point += DURATION
+                trials = group_array
+                
+                    
+            
+            for trial in trials:
+                try:
+                    
+                    # Fetch data series to plot
+                    TIME = None
+                    VOLTAGE = None
+                    DURATION = None
+                    if group == False:
+                        TIME = self.data[trial]["Time"] / 60
+                        DURATION = TIME.max()
+                        VOLTAGE = self.data[trial]["Voltage"]
+                    else:
+                        TIME = trials[trial]["Time"] / 60
+                        VOLTAGE = trials[trial]["Voltage"]
+                        runtime_to_this_point = 0
                     
                     '''
                     # Use RE-Corrected Voltage if available
@@ -741,21 +873,26 @@ class Experiment():
                         _label = self.metadata[trial]["default label"]
                     
                     # Plot using appropriate units and labeling
+                    TIME_PLOTTED = [point + runtime_to_this_point for point in TIME[FILTER_START:FILTER_STOP]]
                     if voltage_units.upper() == "V":
-                        plt.plot(TIME[FILTER_START:FILTER_STOP] + runtime_to_this_point,
+                        plt.plot(TIME_PLOTTED,
                                  VOLTAGE[FILTER_START:FILTER_STOP],
                                  label=_label)
                     elif voltage_units.upper() == "MV":
                         plt.xlabel("Voltage (mV)")
-                        plt.plot(TIME[FILTER_START:FILTER_STOP] + runtime_to_this_point,
+                        plt.plot(TIME_PLOTTED,
                                  VOLTAGE[FILTER_START:FILTER_STOP]*1000,
                                  label=_label)
+                    
                     else:
                         raise NameError("Units not found or other error while plotting CP curve.")
                     
                     # Update the runtime variable used to array CP data in series instead of stacking
-                    if form == 'series':
+                    if series == True and group == False:
                         runtime_to_this_point += DURATION
+                    
+                    # Set x-axis time ticks to every 60 minutes
+                    plt.xticks(np.arange(0, max(TIME_PLOTTED)+1, 60.0))
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
@@ -767,8 +904,8 @@ class Experiment():
             if ylabel == None:
                 ylabel="Current (A)"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             for trial in trials:
                 try:
@@ -817,8 +954,8 @@ class Experiment():
             if ylabel == None:
                 ylabel = r'$log|i| \: (i \ in \ A)$'
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             xlim = [None,None]
             ylim = [None,None]
@@ -877,8 +1014,8 @@ class Experiment():
             if ylabel == None:
                 ylabel = r"$Current \: (mA)$"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             # list of plotting colors (for matching scatter color with regression color)
             # needs to be expanded beyond 10 values to prevent overlap with >10 traces
@@ -920,8 +1057,8 @@ class Experiment():
             if ylabel == None:
                 ylabel = r"$Current \: (A)$"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             for trial in trials:
                 try:
@@ -962,8 +1099,8 @@ class Experiment():
             if ylabel == None:
                 ylabel = r"${-Z}_{im} \: (\Omega)$"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             try:
                 for trial in trials:
@@ -979,10 +1116,11 @@ class Experiment():
                 raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
             
             try:
-                # auto-formatting of Nyquist plot
-                if (zoom[0] is not None) and (zoom[1] is not None):
-                    ZOOM_RATIO = zoom[0]
-                    CENTER_INDEX = zoom[1]
+                
+                # auto-formatting of Nyquist plot using _zoom param (should normally only be called by self.extract_Ru_from_HFR())
+                if (_zoom[0] is not None) and (_zoom[1] is not None):
+                    ZOOM_RATIO = _zoom[0]
+                    CENTER_INDEX = _zoom[1]
                     
                     X_CENTER = self.data[trial]["Z_real"][CENTER_INDEX]
                     Y_CENTER = abs(self.data[trial]["Z_imag"][CENTER_INDEX])
@@ -1007,9 +1145,16 @@ class Experiment():
                     
                     plt.xlim(NEW_LOWER_BOUND_X, NEW_UPPER_BOUND_X)
                     plt.ylim(NEW_LOWER_BOUND_Y, NEW_UPPER_BOUND_Y)
-                    
+                    '''
+                # auto-formatting of Nyquist plot using x_zoom and y_zoom params
+                elif (x_zoom != None,None) or (y_zoom != None,None):
+                    if (x_zoom != None,None):
+                        plt.xlim(x_zoom)
+                    if (y_zoom != None,None):
+                        plt.ylim(y_zoom)
+                    '''
+                # In absence of any zoom being specified, Set the x and y axis lengths equal by increasing the limits of the shorter axis to equal the longer
                 else:
-                    # Set the x and y axis lengths equal by increasing the limits of the shorter axis to equal the longer
                     if abs(self.data[trial]["Z_real"]).max() > abs(self.data[trial]["Z_imag"]).max():
                         # set the y axis limits the same as the x axis limits
                         plt.ylim(plt.xlim())
@@ -1019,9 +1164,10 @@ class Experiment():
                 
                 # Set a square aspect ratio
                 plt.gca().set_aspect('equal', 'box')
+                plt.gca().set_adjustable("box")
             
             except:
-                raise Exception(f"Error while auto-formatting {type_} curve for trial {trial} in {self.name}")
+                raise Exception(f"Error while auto-zooming {type_} curve for trial {trial} in {self.name}")
         
         if type_ == "Bode":
 
@@ -1032,8 +1178,8 @@ class Experiment():
             
             ylabel2 = r"$Phase(Z)/deg$"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
 
             plt.scatter(np.log10(self.frequency), np.log10(abs(self.Z.real)), color='blue')
             
@@ -1056,19 +1202,19 @@ class Experiment():
             
             if xlabel == None:
                 if density:
-                    xlabel = r"$Current \, Density \, (mA \, {cm}^{-2})$"
+                    xlabel = r"Current Density ($mA \, {cm}^{-2}$)"
                 else:
                     xlabel = "Current (mA)"
             if ylabel == None:
                 ylabel = "Voltage (V)"
             ylabel2 = None
             if density:
-                ylabel2 = r"$Power \, Density \, (W \, {cm}^{-2})$"
+                ylabel2 = r"Power Density ($W \, {cm}^{-2}$)"
             else:
                 ylabel2 = "Power (W)"
             
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
             
             try:
                 CURRENT = []
@@ -1099,13 +1245,14 @@ class Experiment():
                          color="blue",
                          alpha=0.6,
                          )
+                
                 ax1 = plt.gca()
                 ax1.spines['left'].set_color('blue')
                 ax1.yaxis.label.set_color('blue')
                 ax1.tick_params(axis='y', colors='blue')
 
                 ax2 = plt.twinx(ax1)
-                plt.ylabel(ylabel2, fontsize=16)
+                plt.ylabel(ylabel2, fontsize=fontsize)
                 plt.scatter(CURRENT[FILTER_START:FILTER_STOP],
                             POWER[FILTER_START:FILTER_STOP], 
                             label=label,
@@ -1121,14 +1268,22 @@ class Experiment():
                          )
                 ax2.spines['right'].set_color('red')
                 ax2.yaxis.label.set_color('red')
-                ax2.tick_params(axis='y', colors='red')
+                ax2.tick_params(axis='y', colors='red', labelsize=fontsize-6)
             
             except:
                 raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
         
         
+        # Zoom using x_zoom and y_zoom params
+        if (x_zoom != None,None) or (y_zoom != None,None):
+            if (x_zoom != None,None):
+                plt.xlim(x_zoom)
+            if (y_zoom != None,None):
+                plt.ylim(y_zoom)
+        
+        # Plot legend, if applicable
         if legend:
-            plt.legend()  
+            plt.legend(fontsize=fontsize-6)  
     
     
     def tafel(self, trials=[], voltage_bounds=[None,None], E_eq=0.0):
