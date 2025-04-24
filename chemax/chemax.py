@@ -814,11 +814,11 @@ class Experiment():
         
         if type_ == "CP":
             
+            # If labels are not provided in method call, use default axis labels for chronopotentiometric data
             if xlabel == None:
-                xlabel = "Time (min)"
+                xlabel = "Time (hr)"
             if ylabel == None:
                 ylabel = "Voltage (V)"
-            
             plt.xlabel(xlabel, fontsize=fontsize)
             plt.ylabel(ylabel, fontsize=fontsize)
             
@@ -839,9 +839,8 @@ class Experiment():
                     if series == True:
                         runtime_to_this_point += DURATION
                 trials = group_array
-                
-                    
             
+            # Iterative treatment of desired trials
             for trial in trials:
                 try:
                     
@@ -850,24 +849,15 @@ class Experiment():
                     VOLTAGE = None
                     DURATION = None
                     if group == False:
-                        TIME = self.data[trial]["Time"] / 60
+                        TIME = self.data[trial]["Time"] / 3600
                         DURATION = TIME.max()
                         VOLTAGE = self.data[trial]["Voltage"]
                     else:
-                        TIME = trials[trial]["Time"] / 60
+                        TIME = trials[trial]["Time"] / 3600
                         VOLTAGE = trials[trial]["Voltage"]
                         runtime_to_this_point = 0
                     
-                    '''
-                    # Use RE-Corrected Voltage if available
-                    if "RE-Corrected Voltage" in self.data[trial].columns:
-                        VOLTAGE = self.data[trial]["RE-Corrected Voltage"]
-                    else:
-                        VOLTAGE = self.data[trial]["Voltage"]
-                    '''
-                    
                     # if no label is provided, use default label, if available
-                    # before creating an if/else for group == 'current'/'sequence' try using label parameter for sequence
                     _label = label
                     if label is None:
                         _label = self.metadata[trial]["default label"]
@@ -884,15 +874,18 @@ class Experiment():
                                  VOLTAGE[FILTER_START:FILTER_STOP]*1000,
                                  label=_label)
                     
-                    else:
-                        raise NameError("Units not found or other error while plotting CP curve.")
-                    
                     # Update the runtime variable used to array CP data in series instead of stacking
                     if series == True and group == False:
                         runtime_to_this_point += DURATION
                     
                     # Set x-axis time ticks to every 60 minutes
-                    plt.xticks(np.arange(0, max(TIME_PLOTTED)+1, 60.0))
+                    length_of_longest_trial = 0
+                    for line in plt.gca().get_lines():
+                        time_line = line.get_xdata()
+                        if max(time_line) > length_of_longest_trial:
+                            length_of_longest_trial = max(time_line)
+                    
+                    plt.xticks(np.arange(0, length_of_longest_trial+1, 1.0))
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
