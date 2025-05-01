@@ -1,20 +1,16 @@
-# in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode, e.g., (r'$Ewe \: (V \ v. \ SCE)
-    # be careful that the label matches the reality; best approach is probably to implement auto-RE correction during init
-        # looks like I already did, but I don't like how noisy it is (it's like every trial) and I need to just double-check that it complies with the above
-
-# would be nice if tafel() method printed something out when it ran, like the tafel plot at least and maybe also the corrected I-V curve
-
-# add method for resetting the data (and/or undoing the most recent load operation?..)
-
-# NEED TO UPDATE THE BODE CODE BLOCK TO ALLOW PLOTTING OF MULTIPLE PLOTS (also add try/catch)
-
-# diffusion coefficient print statement at the end of the cottrell method is a little noisy, especially when performed for many CA trials
-
-'''
+- in plots that have voltage on an axis, it would be nice to label the axis with the reference electrode, e.g., (r'$Ewe \: (V \ v. \ SCE)
+    - be careful that the label matches the reality; best approach is probably to implement auto-RE correction during init
+        - looks like I already did, but I don't like how noisy it is (it's like every trial) and I need to just double-check that it complies with the above
 - Calculation of voltage decay for CP data
 - Calculation of faradaic yield
 - Calculation of utilization, etc.
 - add ability to set color when using plot() submethod
     - may require some careful thinking
-- Allow overlay of I-V curves from different groups
-'''
+- Allow overlay of I-V curves and bode plots from different groups
+- add more/better try/catch statements
+- make diffusion coefficient print statement at the end of the cottrell method
+  less noisy (especially bad when performed for many CA trials)
+- Evaluate if/when a method for data reset is necessary, and/or a method for 
+  undoing the most recent load operation, if deemed necessary.
+- Modify tafel() method to print the tafel plot and maybe the corrected I-V 
+  curve after it runs

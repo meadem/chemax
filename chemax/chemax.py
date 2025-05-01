@@ -1298,29 +1298,37 @@ class Experiment():
         if type_ == "Bode":
 
             if xlabel == None:
-                xlabel = r"$log(freq/Hz)$"
+                xlabel = "log(freq /Hz)"
             if ylabel == None:
-                ylabel = r"$log(|Z|/\Omega)$"
+                ylabel = r"log(|Z| /$\Omega)$"
             
             ylabel2 = r"$Phase(Z)/deg$"
             
             plt.xlabel(xlabel, fontsize=fontsize)
             plt.ylabel(ylabel, fontsize=fontsize)
-
-            plt.scatter(np.log10(self.frequency), np.log10(abs(self.Z.real)), color='blue')
             
+            for trial in trials:
+                plt.scatter(np.log10(self.data[trial]["Frequency"]), 
+                            np.log10(abs(self.data[trial]["Z_real"])), 
+                            color='blue')
+            
+            ax = plt.gca()
             ax.spines['left'].set_color('blue')
             ax.yaxis.label.set_color('blue')
             ax.tick_params(axis='y', colors='blue')
 
-            plt.twinx(gca())
-            plt.ylabel(ylabel2, fontsize=16)
+            ax2 = plt.twinx(ax)
+            plt.ylabel(ylabel2, fontsize=fontsize)
             
-            plt.scatter(np.log10(self.frequency), np.angle(self.Z, deg=True), color='red')
+            for trial in trials:
+                plt.scatter(np.log10(self.data[trial]["Frequency"]), 
+                            self.data[trial]["Phase Angle"], 
+                            color='red')
             
-            gca().spines['right'].set_color('red')
-            plt.yaxis.label.set_color('red')
-            gca().tick_params(axis='y', colors='red')
+            ax2.spines['right'].set_color('red')
+            ax2.yaxis.label.set_color('red')
+            ax2.tick_params(axis='y', colors='red')
+            plt.yticks(fontsize=fontsize-6)
         
         if type_ == "IV":
             
@@ -1398,6 +1406,54 @@ class Experiment():
             
             except:
                 raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
+        
+        if type_ == "OCP":
+            
+            # If labels are not provided in method call, use default axis labels for chronopotentiometric data
+            if xlabel == None:
+                xlabel = "Time (hr)"
+            if ylabel == None:
+                ylabel = "Voltage (V)"
+            plt.xlabel(xlabel, fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
+            
+            # Iterative treatment of desired trials
+            for trial in trials:
+                try:
+                    
+                    # Fetch data series to plot
+                    TIME = self.data[trial]["Time"] / 3600
+                    VOLTAGE = self.data[trial]["Voltage"]
+                        
+                    # if no label is provided, use default label, if available
+                    _label = label
+                    if label is None:
+                        _label = self.metadata[trial]["default label"]
+                    
+                    # Plot using appropriate units and labeling
+                    if voltage_units.upper() == "V":
+                        plt.plot(TIME,
+                                 VOLTAGE[FILTER_START:FILTER_STOP],
+                                 label=_label)
+                    elif voltage_units.upper() == "MV":
+                        plt.ylabel("Voltage (mV)")
+                        plt.plot(TIME,
+                                 VOLTAGE[FILTER_START:FILTER_STOP]*1000,
+                                 label=_label)
+                    
+                    # Set x-axis time ticks to every 60 minutes
+                    '''
+                    length_of_longest_trial = 0
+                    for line in plt.gca().get_lines():
+                        time_line = line.get_xdata()
+                        if max(time_line) > length_of_longest_trial:
+                            length_of_longest_trial = max(time_line)
+                    
+                    plt.xticks(np.arange(0, length_of_longest_trial+1, 1.0))
+                    '''
+                
+                except:
+                    raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
         
         
         # Zoom using x_zoom and y_zoom params
