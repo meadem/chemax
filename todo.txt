@@ -16,8 +16,5 @@
 - Calculation of utilization, etc.
 - add ability to set color when using plot() submethod
     - may require some careful thinking
-- add a 'group' param to the load() submethod to allow for specification of specific groups of data to plot together, etc.
-    - useful, e.g., when you want to plot 4 CP experiments together as one and the other 4 together as one for comparison of step runs
-    - group name can also then be used as the default plotting label
 - Allow overlay of I-V curves from different groups
 '''
