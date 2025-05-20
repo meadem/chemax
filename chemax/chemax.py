@@ -1355,7 +1355,7 @@ class Experiment():
                 VOLTAGE = []
                 POWER = []
                 
-                for trial in self.metadata:
+                for trial in trials:
                     if self.metadata[trial]['technique'].upper() == "CP":
                         if density:
                             CURRENT.append(self.metadata[trial]['I-V Current Density (mA/cm2)'])
