@@ -80,6 +80,46 @@ class Experiment():
             print(f'Working electrode area not specified for {self.name}.')
     
     
+    def calculate_voltage_decay(self, trial=None, interval=[None,None]):
+        '''
+        
+
+        Parameters
+        ----------
+        trial : TYPE, optional
+            DESCRIPTION. The default is None.
+        interval : TYPE, optional
+            Specified in hours. The default is [None,None].
+
+        Returns
+        -------
+        result : TYPE
+            DESCRIPTION.
+
+        '''
+        TIME = self.data[trial]["Time"]
+        VOLTAGE = self.data[trial]["Voltage"]
+        START_TIME = interval[0]
+        FINAL_TIME = interval[1]
+        TIME_SECONDS_FILTERED = TIME[START_TIME*3600:FINAL_TIME*3600]
+        TIME_HOURS_FILTERED = TIME_SECONDS_FILTERED/3600
+        VOLTAGE_V_FILTERED = VOLTAGE[TIME == TIME_SECONDS_FILTERED]
+        VOLTAGE_mV_FILTERED = VOLTAGE_V_FILTERED*1000
+        START_VOLTAGE = VOLTAGE_V_FILTERED[0]
+        FINAL_VOLTAGE = VOLTAGE_V_FILTERED[len(VOLTAGE_V_FILTERED)-1]
+        
+        coef = np.polyfit(TIME_HOURS_FILTERED, VOLTAGE_mV_FILTERED, 1)
+        DECAY_RATE = coef[0]     # mV/hour
+        
+        _fig = plt.figure(0, figsize=(15,10))
+        self.plot("CP", trials=[trial], x_zoom=interval, legend=False)
+        plt.gca().plot(TIME_HOURS_FILTERED, np.poly1d(coef))
+        
+        result = print(f"Voltage decay rate from {START_TIME} hours ({START_VOLTAGE:.4} V) to {FINAL_TIME} hours ({FINAL_VOLTAGE:.4} V) = {DECAY_RATE:.4} mV/hr")
+        
+        return result
+    
+    
     def correct_time(self, trials=[], silent=True):
         '''
         Zero-correct time (i.e., shift all time values equally and such that the first value is zero)
@@ -1018,7 +1058,18 @@ class Experiment():
                         if max(time_line) > length_of_longest_trial:
                             length_of_longest_trial = max(time_line)
                     
-                    plt.xticks(np.arange(0, length_of_longest_trial+1, 1.0))
+                    TIME_TICK_INTERVAL = None
+                    
+                    if length_of_longest_trial+1 > 100:
+                        TIME_TICK_INTERVAL = 50.0
+                    elif length_of_longest_trial+1 > 48:
+                        TIME_TICK_INTERVAL = 24.0
+                    elif length_of_longest_trial+1 > 12:
+                        TIME_TICK_INTERVAL = 6.0
+                    else:
+                        TIME_TICK_INTERVAL = 1.0
+                    
+                    plt.xticks(np.arange(0, length_of_longest_trial+1, TIME_TICK_INTERVAL))
                 
                 except:
                     raise Exception(f"Error while plotting {type_} curve for trial {trial} in {self.name}")
